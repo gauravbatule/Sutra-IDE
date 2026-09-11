@@ -75,6 +75,14 @@ describe('runLog', () => {
     expect(getRunDetail(id)!.run.verificationPassed).toBeNull();
   });
 
+  it('treats an explicit null verificationPassed as no-verification, not false', () => {
+    // Regression: Number(null) === 0 once stored 0, which read back as a
+    // phantom "verification failed" on every chat-only run.
+    const id = startRun({ workspaceRoot: '/w', permissionMode: 'full', promptPreview: '' });
+    finishRun(id, 'completed', { filesMutated: 0, verificationPassed: null });
+    expect(getRunDetail(id)!.run.verificationPassed).toBeNull();
+  });
+
   it('lists newest-first and clamps the limit', () => {
     for (let i = 0; i < 5; i++) {
       startRun({ workspaceRoot: `/w-${i}`, permissionMode: 'full', promptPreview: '' });

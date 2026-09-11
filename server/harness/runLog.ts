@@ -105,6 +105,12 @@ export function finishRun(
   data?: { filesMutated?: number; verificationPassed?: boolean | null }
 ): void {
   const database = requireDb();
+  // Only a concrete boolean patches the column — undefined AND null both mean
+  // "no verification stage ran" and must leave any existing value untouched.
+  const verificationPatch =
+    data?.verificationPassed === true || data?.verificationPassed === false
+      ? Number(data.verificationPassed)
+      : null;
   const result = database
     .prepare(
       `UPDATE agent_runs
@@ -113,7 +119,7 @@ export function finishRun(
            verification_passed = COALESCE(?, verification_passed)
        WHERE id = ? AND status = 'running'`
     )
-    .run(Date.now(), status, data?.filesMutated ?? null, data?.verificationPassed === undefined ? null : Number(data.verificationPassed), runId);
+    .run(Date.now(), status, data?.filesMutated ?? null, verificationPatch, runId);
   // Only the first finish transitions the row — later calls must not emit events.
   if (result.changes > 0) {
     recordEvent(runId, 'RunEnded', { status });
