@@ -33,6 +33,7 @@ import {
   pruneMemories,
   buildMemorySection,
 } from './harness/memory.js';
+import { StagnationDetector, shouldExtendRun } from './harness/stagnation.js';
 import { WSChannel, createPacket, parsePacket } from './wsProtocol.js';
 import { SecurityGuardrails } from './security/guardrails.js';
 import { SUTRA_ALL_PROVIDERS } from './providers/catalog.js';
@@ -1939,10 +1940,16 @@ wss.on('connection', (ws: WebSocket, req) => {
             }
 
             agentRunActive = true;
-            // Safe bounded execution: 25 rounds for goal missions, 12 rounds for standard prompts
-            const maxToolRounds = isGoalModeActive ? 30 : 20;
+            // Safe bounded execution: 30 rounds for goal missions, 20 for standard prompts.
+            // Adaptive compute may grant one bounded extension mid-run (see below).
+            let maxToolRounds = isGoalModeActive ? 30 : 20;
+            let roundExtensionsUsed = 0;
             const failedCallTracker: Map<string, number> = new Map();
             const callRepetitionTracker: Map<string, number> = new Map();
+            // Semantic stagnation detection across everything actually executed this run.
+            const stagnationDetector = new StagnationDetector();
+            let stagnationNudged = false;
+            let worstStagnationLevel: 'none' | 'warn' | 'block' = 'none';
             const executedToolsSummary: string[] = [];
             // Workspace paths this run actually mutated — drives the end-of-run verification stage.
             const mutatedFiles: Set<string> = new Set();
@@ -1991,6 +1998,39 @@ wss.on('connection', (ws: WebSocket, req) => {
 
             for (let round = 0; round < maxToolRounds; round += 1) {
               if (signal.aborted) break;
+
+              // Adaptive compute: entering what would be the final round with an
+              // open plan and real progress grants ONE bounded extension instead
+              // of cutting verified work short. Stagnated runs get no extension.
+              if (round === maxToolRounds - 1 && roundExtensionsUsed < 1 && !isGoalModeActive) {
+                let planOpenNow = false;
+                try {
+                  const planPath = path.join(fsTools.getWorkspaceRoot(), 'task_plan.md');
+                  if (fs.existsSync(planPath)) {
+                    planOpenNow = /- \[ \]|\(pending\)|\(in_progress\)/.test(fs.readFileSync(planPath, 'utf-8'));
+                  }
+                } catch {
+                  // No readable plan — no extension basis
+                }
+                const runShowsProgress = mutatedFiles.size > 0 || executedToolsSummary.length > 0;
+                const canExtend = shouldExtendRun({
+                  roundsUsed: round,
+                  maxRounds: maxToolRounds,
+                  planHasOpenItems: planOpenNow,
+                  runShowsProgress,
+                  stagnationLevel: worstStagnationLevel,
+                  extensionsUsed: roundExtensionsUsed,
+                });
+                if (canExtend) {
+                  roundExtensionsUsed += 1;
+                  maxToolRounds += 8;
+                  if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(createPacket(WSChannel.AGENT_STREAM, 'chunk', {
+                      thinking: 'The task plan still has open items — granting this run additional working rounds to finish properly.',
+                    }));
+                  }
+                }
+              }
 
               let assistantText = '';
               let requestedTools: any[] = [];
@@ -2457,6 +2497,51 @@ ${customModelsDoc}`;
                 if (resultAny && (resultAny.error || resultAny.status === 'skipped')) continue;
                 const target = execution.toolCall.params?.path || execution.toolCall.params?.oldPath || '';
                 if (target) mutatedFiles.add(String(target));
+              }
+
+              // Semantic stagnation check over what actually executed this round.
+              // A warning injects one strategic nudge; a block ends the loop below
+              // via worstStagnationLevel before more budget is burned.
+              for (const execution of executions) {
+                const resultAny = execution.result as any;
+                const ok = !(resultAny?.error || resultAny?.status === 'skipped');
+                try {
+                  const assessment = stagnationDetector.record({
+                    tool: execution.toolCall.tool,
+                    params: execution.toolCall.params,
+                    ok,
+                  });
+                  if (assessment.level !== 'none' && assessment.level !== 'block') {
+                    worstStagnationLevel = worstStagnationLevel === 'block' ? 'block' : 'warn';
+                  }
+                  if (assessment.level === 'block') {
+                    worstStagnationLevel = 'block';
+                  }
+                  if (assessment.level === 'warn' && !stagnationNudged && !signal.aborted) {
+                    stagnationNudged = true;
+                    messages.push({
+                      role: 'user',
+                      content: `[FOCUS]: ${assessment.reason}. Stop repeating this approach — re-read the current state, change strategy, or ask the user with ask_user if you are stuck.`,
+                    });
+                    if (ws.readyState === WebSocket.OPEN) {
+                      ws.send(createPacket(WSChannel.AGENT_STREAM, 'chunk', {
+                        thinking: `Repeating pattern detected (${assessment.reason}) — nudging toward a different approach.`,
+                      }));
+                    }
+                  }
+                } catch {
+                  // Stagnation tracking must never break tool flow
+                }
+              }
+
+              // Hard semantic stop: the run keeps redoing converged-on work.
+              if (worstStagnationLevel === 'block') {
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(createPacket(WSChannel.AGENT_STREAM, 'chunk', {
+                    delta: '\n\n*(Stopped a repeating action loop to save your budget — give me a nudge if I went the wrong way.)*',
+                  }));
+                }
+                break;
               }
 
               // One compact audit event per round — per-tool outcome flags, no payloads.
