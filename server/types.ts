@@ -6,11 +6,73 @@ export type AIProviderId =
   | 'deepseek'
   | 'ollama'
   | 'openrouter'
-  | 'omniroute'
+  | 'gateway'
   | 'groq'
   | 'github'
   | 'sutra'
-  | 'custom';
+  | 'chatgpt-web'
+  | 'antigravity'
+  | 'antigravity-ide'
+  | 'zhipu'
+  | 'glm'
+  | 'xai'
+  | 'qwen'
+  | 'mistral'
+  | 'cohere'
+  | 'perplexity'
+  | 'together'
+  | 'fireworks'
+  | 'cerebras'
+  | 'sambanova'
+  | 'hyperbolic'
+  | 'deepinfra'
+  | 'novita'
+  | 'lepton'
+  | 'nebius'
+  | 'scaleway'
+  | 'ovhcloud'
+  | 'baseten'
+  | 'featherless'
+  | 'siliconflow'
+  | 'moonshot'
+  | 'minimax'
+  | 'baichuan'
+  | 'yi-01ai'
+  | 'doubao'
+  | 'hunyuan'
+  | 'sarvam'
+  | 'upstage'
+  | 'lmstudio'
+  | 'localai'
+  | 'jan-ai'
+  | 'vllm'
+  | 'litellm'
+  | 'cloudflare'
+  | 'replicate'
+  | 'nvidia-nim'
+  | 'bai'
+  | 'anyapi'
+  | 'kilo'
+  | 'llm7'
+  | 'huggingface'
+  | 'opencode'
+  | 'ovh'
+  | 'agnes'
+  | 'reka'
+  | 'routeway'
+  | 'bazaarlink'
+  | 'ainative'
+  | 'aion'
+  | 'requesty'
+  | 'navy'
+  | 'nara'
+  | 'sealion'
+  | 'orcarouter'
+  | 'unorouter'
+  | 'xkiro'
+  | 'modelscope'
+  | 'custom'
+  | (string & {});
 
 export type SubagentRole = 
   | 'architect'
@@ -24,6 +86,67 @@ export type SubagentRole =
   | 'video_director'
   | 'audio_designer';
 
+export type ModelStatus = 
+  | 'active'
+  | 'preview'
+  | 'deprecated'
+  | 'retired'
+  | 'unavailable'
+  | 'unknown';
+
+export type ModelSource =
+  | 'provider-api'
+  | 'antigravity-catalog'
+  | 'local'
+  | 'curated'
+  | 'custom'
+  // Live discovery from a localhost runtime that needs no API key.
+  | 'ollama-local'
+  | 'local-runtime';
+
+export interface SutraModel {
+  id: string;
+  name: string;
+  canonicalId?: string;
+  provider: AIProviderId | string;
+  providerModelId?: string;
+  wireModelId?: string;
+  displayName?: string;
+  status?: ModelStatus;
+  modalities?: {
+    input: string[];
+    output: string[];
+  };
+  capabilities?: {
+    reasoning?: boolean;
+    thinking?: boolean;
+    tools?: boolean;
+    vision?: boolean;
+    structuredOutput?: boolean;
+    streaming?: boolean;
+    mcp?: boolean;
+    image?: boolean;
+    audio?: boolean;
+    video?: boolean;
+  };
+  thinking?: {
+    supported: boolean;
+    levels?: ('low' | 'medium' | 'high')[];
+    default?: 'low' | 'medium' | 'high';
+  };
+  contextWindow?: number;
+  costPer1kTokens?: { input: number; output: number };
+  description?: string;
+  aliases?: string[];
+  discoveredAt?: string;
+  lastVerifiedAt?: string;
+  source?: ModelSource;
+  supportsVision?: boolean;
+  supportsTools?: boolean;
+  reasoningEffort?: 'low' | 'medium' | 'high';
+  isCustom?: boolean;
+}
+
 export interface ModelDefinition {
   id: string;
   name: string;
@@ -32,9 +155,41 @@ export interface ModelDefinition {
   reasoningEffort?: 'low' | 'medium' | 'high';
   supportsVision: boolean;
   supportsTools: boolean;
-  costPer1kTokens: { input: number; output: number };
+  costPer1kTokens?: { input: number; output: number };
   description: string;
   isCustom?: boolean;
+  category?: 'llm' | 'image' | 'video' | 'audio' | 'multimodal';
+  // SutraModel compatibility fields
+  canonicalId?: string;
+  providerModelId?: string;
+  wireModelId?: string;
+  displayName?: string;
+  status?: ModelStatus;
+  modalities?: {
+    input: string[];
+    output: string[];
+  };
+  capabilities?: {
+    reasoning?: boolean;
+    thinking?: boolean;
+    tools?: boolean;
+    vision?: boolean;
+    structuredOutput?: boolean;
+    streaming?: boolean;
+    mcp?: boolean;
+    image?: boolean;
+    audio?: boolean;
+    video?: boolean;
+  };
+  thinking?: {
+    supported: boolean;
+    levels?: ('low' | 'medium' | 'high')[];
+    default?: 'low' | 'medium' | 'high';
+  };
+  aliases?: string[];
+  source?: ModelSource;
+  discoveredAt?: string;
+  lastVerifiedAt?: string;
 }
 
 export interface CustomProviderConfig {
@@ -48,6 +203,7 @@ export interface CustomProviderConfig {
 }
 
 export type PermissionLevel = 'strict' | 'full';
+export type HarnessMode = 'standard' | 'avo';
 
 export interface ToolCallPayload {
   id: string;
@@ -89,7 +245,7 @@ export interface SwarmTaskMilestone {
   dependencies: string[];
 }
 
-export interface OmniAgentMessage {
+export interface SutraAgentMessage {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'tool';
   subagentRole?: SubagentRole;
@@ -100,6 +256,8 @@ export interface OmniAgentMessage {
   modelUsed?: string;
   tokens?: { input: number; output: number };
 }
+
+export type OmniAgentMessage = SutraAgentMessage;
 
 export interface ProjectAsset {
   id: string;

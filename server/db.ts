@@ -2,13 +2,48 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import fs from 'fs';
+import os from 'os';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const dbPath = path.join(__dirname, '..', 'sutra.db');
+export function resolveDatabasePath(): string {
+  if (process.env.SUTRA_DB_PATH) {
+    return path.resolve(process.env.SUTRA_DB_PATH);
+  }
+  if (process.env.NODE_ENV === 'test' || process.env.VITEST) {
+    const testDbDir = path.join(os.tmpdir(), 'sutra-test');
+    if (!fs.existsSync(testDbDir)) {
+      try { fs.mkdirSync(testDbDir, { recursive: true }); } catch {}
+    }
+    return path.join(testDbDir, `sutra-test-${process.pid}.db`);
+  }
+  const localDb = path.join(__dirname, '..', 'sutra.db');
+  if (fs.existsSync(localDb) || process.env.NODE_ENV !== 'production') {
+    return localDb;
+  }
+  const appData = process.env.APPDATA || (process.platform === 'darwin'
+    ? path.join(os.homedir(), 'Library', 'Application Support')
+    : path.join(os.homedir(), '.local', 'share'));
+  const targetDir = path.join(appData, 'sutra-ide');
+  if (!fs.existsSync(targetDir)) {
+    try { fs.mkdirSync(targetDir, { recursive: true }); } catch {}
+  }
+  return path.join(targetDir, 'sutra.db');
+}
+
+const dbPath = resolveDatabasePath();
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  try { fs.mkdirSync(dbDir, { recursive: true }); } catch {}
+}
 const db = new Database(dbPath);
 
 db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+db.pragma('foreign_keys = ON');
+db.pragma('busy_timeout = 10000');
 
 const initDb = () => {
   db.exec(`
@@ -129,6 +164,9 @@ const initDb = () => {
       timestamp INTEGER NOT NULL,
       FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
     );
+
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_timestamp ON chat_messages(timestamp);
   `);
 
   // Safe migration for existing SQLite database files — each column may already
@@ -150,6 +188,20 @@ const initDb = () => {
   try {
     db.exec(`
       ALTER TABLE providers ADD COLUMN headers TEXT;
+    `);
+  } catch {
+    // Column already exists — nothing to migrate.
+  }
+  try {
+    db.exec(`
+      ALTER TABLE chat_sessions ADD COLUMN workspace TEXT;
+    `);
+  } catch {
+    // Column already exists — nothing to migrate.
+  }
+  try {
+    db.exec(`
+      ALTER TABLE chat_sessions ADD COLUMN workspace_name TEXT;
     `);
   } catch {
     // Column already exists — nothing to migrate.

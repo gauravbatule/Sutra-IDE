@@ -19,8 +19,10 @@ export interface Checkpoint {
   timestamp: number;
   description: string;
   filesModified: string[];
-  /** Dangling stash commit produced by `git stash create`; null when the workspace had nothing to snapshot or git is unavailable. */
+  /** Dangling stash commit or HEAD commit hash produced by git; null when git is unavailable. */
   stashHash?: string | null;
+  /** Filesystem directory containing raw file snapshots for non-git workspaces. */
+  fsSnapshotDir?: string | null;
 }
 
 export interface CheckpointResult {
@@ -71,27 +73,67 @@ export class GitCheckpointsManager {
       description,
       filesModified: files,
       stashHash: null,
+      fsSnapshotDir: null,
     };
 
     let stashHash: string | null = null;
-    let skipReason: string | undefined;
-    try {
-      // `git stash create` records uncommitted work as a dangling commit without
-      // modifying the working tree or refs/stash — perfect for micro-checkpoints.
-      const output = execFileSync('git', ['stash', 'create', `${description} (${id})`], {
-        cwd: fsTools.getWorkspaceRoot(),
-        encoding: 'utf-8',
-        timeout: 10_000,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
-      if (/^[0-9a-fA-F]{4,40}$/.test(output)) {
-        stashHash = output;
-      } else {
-        // Empty output means a clean tree (nothing to snapshot) or not a repo.
-        skipReason = output ? 'Unexpected git output' : 'Nothing to snapshot (clean tree or not a git repository)';
+    let fsSnapshotCreated = false;
+    const workspaceRoot = fsTools.getWorkspaceRoot();
+    const isGitRepo = fs.existsSync(path.join(workspaceRoot, '.git'));
+
+    if (isGitRepo) {
+      try {
+        // 1. Try `git stash create` which records uncommitted modifications as a dangling commit
+        const output = execFileSync('git', ['-c', 'core.safecrlf=false', 'stash', 'create', `${description} (${id})`], {
+          cwd: workspaceRoot,
+          encoding: 'utf-8',
+          timeout: 2_000,
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim();
+
+        if (/^[0-9a-fA-F]{4,40}$/.test(output)) {
+          stashHash = output;
+        } else {
+          // If stash create returned empty string, check if workspace is a clean git tree
+          try {
+            const headHash = execFileSync('git', ['rev-parse', 'HEAD'], {
+              cwd: workspaceRoot,
+              encoding: 'utf-8',
+              timeout: 1_000,
+              stdio: ['ignore', 'pipe', 'ignore'],
+            }).trim();
+            if (/^[0-9a-fA-F]{4,40}$/.test(headHash)) {
+              stashHash = headHash;
+            }
+          } catch {
+            // Not a git repository or no commits yet
+          }
+        }
+      } catch {
+        // Git execution failed or timed out — safely falls through to fast fs snapshot
       }
-    } catch {
-      skipReason = 'Not a git repository or git is unavailable';
+    }
+
+    // 2. File snapshot fallback for modified files (especially useful for non-git or untracked files)
+    if (files.length > 0) {
+      try {
+        const snapshotDir = path.join(workspaceRoot, '.sandbox', 'checkpoints', id);
+        fs.mkdirSync(snapshotDir, { recursive: true });
+        for (const fileRel of files) {
+          const absSource = path.resolve(workspaceRoot, fileRel);
+          if (fs.existsSync(absSource) && fs.statSync(absSource).isFile()) {
+            const absDest = path.join(snapshotDir, fileRel);
+            fs.mkdirSync(path.dirname(absDest), { recursive: true });
+            fs.copyFileSync(absSource, absDest);
+            fsSnapshotCreated = true;
+          }
+        }
+        if (fsSnapshotCreated) {
+          checkpoint.fsSnapshotDir = snapshotDir;
+        }
+      } catch {
+        // Filesystem snapshot is best effort
+      }
     }
 
     checkpoint.stashHash = stashHash;
@@ -100,9 +142,8 @@ export class GitCheckpointsManager {
     if (this.checkpoints.length > MAX_CHECKPOINTS) this.checkpoints.shift();
     this.persistRegistry();
 
-    if (!stashHash) {
-      console.warn(`[GitCheckpoint] Skipped restorable snapshot for "${id}": ${skipReason}`);
-      return { checkpoint, skipped: true, reason: skipReason };
+    if (!stashHash && !fsSnapshotCreated) {
+      return { checkpoint, skipped: true, reason: 'Nothing to snapshot (clean tree and no existing files specified)' };
     }
     return { checkpoint, skipped: false };
   }
@@ -112,33 +153,70 @@ export class GitCheckpointsManager {
     return [...this.checkpoints];
   }
 
-  public async rollback(checkpointId: string): Promise<{ success: boolean; message: string }> {
+  public async rollback(checkpointId?: string): Promise<{ success: boolean; message: string }> {
     this.loadRegistry();
-    const found = this.checkpoints.find((c) => c.id === checkpointId);
+    const found = (!checkpointId || checkpointId === 'latest')
+      ? this.checkpoints[this.checkpoints.length - 1]
+      : this.checkpoints.find((c) => c.id === checkpointId);
+
     if (!found) {
-      return { success: false, message: `Checkpoint ${checkpointId} not found.` };
-    }
-    if (!found.stashHash) {
-      return { success: false, message: `Checkpoint "${found.description}" has no restorable snapshot.` };
+      // Fallback: if in a git repository, discard uncommitted working tree changes
+      const workspaceRoot = fsTools.getWorkspaceRoot();
+      try {
+        execFileSync('git', ['checkout', 'HEAD', '--', '.'], {
+          cwd: workspaceRoot,
+          encoding: 'utf-8',
+          timeout: 10_000,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        return { success: true, message: 'Reverted uncommitted working tree changes via git checkout HEAD.' };
+      } catch (err: any) {
+        return { success: false, message: 'No checkpoints found to restore.' };
+      }
     }
 
-    try {
-      // Restore ONLY the files captured by this checkpoint from its stored snapshot.
-      const pathsToRestore = found.filesModified.length > 0 ? found.filesModified : ['.'];
-      execFileSync(
-        'git',
-        ['checkout', found.stashHash, '--', ...pathsToRestore],
-        {
-          cwd: fsTools.getWorkspaceRoot(),
-          encoding: 'utf-8',
-          timeout: 15_000,
-          stdio: ['ignore', 'pipe', 'pipe'],
-        }
-      );
-      return { success: true, message: `Restored ${pathsToRestore.length} file(s) from checkpoint "${found.description}".` };
-    } catch (err: any) {
-      return { success: false, message: `Rollback failed: ${err.message}` };
+    const workspaceRoot = fsTools.getWorkspaceRoot();
+    const pathsToRestore = found.filesModified.length > 0 ? found.filesModified : ['.'];
+
+    // 1. Try git rollback if stashHash or HEAD commit hash is present
+    if (found.stashHash) {
+      try {
+        execFileSync(
+          'git',
+          ['checkout', found.stashHash, '--', ...pathsToRestore],
+          {
+            cwd: workspaceRoot,
+            encoding: 'utf-8',
+            timeout: 15_000,
+            stdio: ['ignore', 'pipe', 'pipe'],
+          }
+        );
+        return { success: true, message: `Restored ${pathsToRestore.length} file(s) via git from checkpoint "${found.description}".` };
+      } catch (err: any) {
+        console.warn(`[GitCheckpoint] Git checkout rollback failed (${err.message}), trying filesystem snapshot...`);
+      }
     }
+
+    // 2. Fallback to filesystem snapshot directory if available
+    if (found.fsSnapshotDir && fs.existsSync(found.fsSnapshotDir)) {
+      try {
+        let restoredCount = 0;
+        for (const fileRel of found.filesModified) {
+          const snapshotFile = path.join(found.fsSnapshotDir, fileRel);
+          const targetFile = path.resolve(workspaceRoot, fileRel);
+          if (fs.existsSync(snapshotFile)) {
+            fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+            fs.copyFileSync(snapshotFile, targetFile);
+            restoredCount++;
+          }
+        }
+        return { success: true, message: `Restored ${restoredCount} file(s) from local filesystem snapshot "${found.description}".` };
+      } catch (err: any) {
+        return { success: false, message: `Filesystem rollback failed: ${err.message}` };
+      }
+    }
+
+    return { success: false, message: `Checkpoint "${found.description}" has no restorable snapshot.` };
   }
 }
 

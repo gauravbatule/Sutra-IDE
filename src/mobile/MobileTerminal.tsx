@@ -97,22 +97,22 @@ export const MobileTerminal: React.FC = () => {
 
       {/* Mobile Soft Modifier Bar */}
       <div className="h-10 bg-obsidian-surface2 border-t border-obsidian-hairline flex items-center gap-1.5 px-2 overflow-x-auto text-xs font-mono select-none">
-        <button onClick={() => sendKey('\x1b')} className="px-2.5 py-1 bg-obsidian-surface4 rounded-lg text-obsidian-inkPrimary active:bg-white/15">
+        <button onClick={() => sendKey('\x1b')} className="px-2.5 py-1 bg-obsidian-surface4 rounded-lg text-obsidian-inkPrimary active:bg-obsidian-surface4">
           ESC
         </button>
-        <button onClick={() => sendKey('\t')} className="px-2.5 py-1 bg-obsidian-surface4 rounded-lg text-obsidian-inkPrimary active:bg-white/15">
+        <button onClick={() => sendKey('\t')} className="px-2.5 py-1 bg-obsidian-surface4 rounded-lg text-obsidian-inkPrimary active:bg-obsidian-surface4">
           TAB
         </button>
-        <button onClick={() => sendKey('\x03')} className="px-2.5 py-1 bg-obsidian-surface4 rounded-lg text-obsidian-inkSecondary active:bg-white/15">
+        <button onClick={() => sendKey('\x03')} className="px-2.5 py-1 bg-obsidian-surface4 rounded-lg text-obsidian-inkSecondary active:bg-obsidian-surface4">
           CTRL+C
         </button>
-        <button onClick={() => sendKey('\x1b[A')} className="px-2.5 py-1 bg-obsidian-surface4 rounded-lg text-obsidian-inkPrimary active:bg-white/15">
+        <button onClick={() => sendKey('\x1b[A')} className="px-2.5 py-1 bg-obsidian-surface4 rounded-lg text-obsidian-inkPrimary active:bg-obsidian-surface4">
           ↑
         </button>
-        <button onClick={() => sendKey('\x1b[B')} className="px-2.5 py-1 bg-obsidian-surface4 rounded-lg text-obsidian-inkPrimary active:bg-white/15">
+        <button onClick={() => sendKey('\x1b[B')} className="px-2.5 py-1 bg-obsidian-surface4 rounded-lg text-obsidian-inkPrimary active:bg-obsidian-surface4">
           ↓
         </button>
-        <button onClick={() => sendKey('clear\r')} className="px-2.5 py-1 bg-obsidian-surface4 rounded-lg text-obsidian-inkPrimary active:bg-white/15">
+        <button onClick={() => sendKey('clear\r')} className="px-2.5 py-1 bg-obsidian-surface4 rounded-lg text-obsidian-inkPrimary active:bg-obsidian-surface4">
           CLEAR
         </button>
       </div>

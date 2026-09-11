@@ -25,8 +25,8 @@ timeout /t 1 /nobreak >nul
 goto waitloop
 
 :ready
-echo [3/3] Server is up - opening SUTRA IDE...
-start msedge --app=http://localhost:3001 || start chrome --app=http://localhost:3001 || start http://localhost:3001
+echo [3/3] Server is up - opening SUTRA IDE Desktop App...
+start "SUTRA Desktop" /b npx electron desktop/main.cjs || start msedge --app=http://localhost:3001 || start chrome --app=http://localhost:3001
 
 echo ============================================================
 echo SUTRA IDE is running at http://localhost:3001

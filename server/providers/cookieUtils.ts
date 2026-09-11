@@ -12,7 +12,7 @@
 
 export interface NormalizedCookie {
   cookie: string;
-  providerHint: 'chatgpt' | 'claude' | 'gemini' | 'qwen' | 'generic';
+  providerHint: 'chatgpt' | 'claude' | 'gemini' | 'qwen' | 'deepseek' | 'grok' | 'generic';
   reassembledSplitToken: boolean;
   droppedCount: number;
   notes: string[];
@@ -101,19 +101,23 @@ function reassembleSplitTokens(map: Map<string, string>): { map: Map<string, str
 
 function detectProvider(names: string[]): NormalizedCookie['providerHint'] {
   const joined = names.join(' ');
-  if (/next-auth\.session-token|__oailb|oai-sc/i.test(joined)) return 'chatgpt';
+  if (/next-auth\.session-token|__oailb|oai-sc|__Secure-next-auth/i.test(joined)) return 'chatgpt';
   if (/sessionKey|claude/i.test(joined)) return 'claude';
   if (/__Secure-1PSID|__Secure-1PSIDTS|SID/i.test(joined)) return 'gemini';
   if (/token_tweak|dasheng|qwen/i.test(joined)) return 'qwen';
+  if (/userToken|deepseek/i.test(joined)) return 'deepseek';
+  if (/sso|sso-rw|auth_token|ct0/i.test(joined)) return 'grok';
   return 'generic';
 }
 
 /** Per-provider allowlists: when known, keep ONLY what the provider needs. */
 const PROVIDER_REQUIRED: Record<string, RegExp[]> = {
-  chatgpt: [/^__Secure-next-auth\.session-token$/, /^cf_clearance$/],
+  chatgpt: [/^__Secure-next-auth\.session-token$/, /^next-auth\.session-token$/, /^cf_clearance$/, /^__Host-next-auth/],
   claude: [/^sessionKey$/, /^cf_clearance$/],
   gemini: [/^__Secure-1PSID$/, /^__Secure-1PSIDTS$/, /^__Secure-1PSIDCC$/, /^SID$/, /^HSID$/, /^SSID$/, /^APISID$/, /^SAPISID$/],
   qwen: [/^token_tweak$/, /^tongyi_login_token$/, /^cna$/],
+  deepseek: [/^userToken$/, /^HBL_TOKEN$/, /^intercom-session/],
+  grok: [/^sso$/, /^sso-rw$/, /^auth_token$/, /^ct0$/],
 };
 
 export function normalizeCookieBlob(raw: string): NormalizedCookie {
@@ -122,12 +126,21 @@ export function normalizeCookieBlob(raw: string): NormalizedCookie {
 
   // Bare token paste: a single value with no '=' at all
   if (!input.includes('=') && input.length > 20) {
+    let cookieName = '__Secure-next-auth.session-token';
+    let hint: NormalizedCookie['providerHint'] = 'chatgpt';
+    if (input.startsWith('sk-ant-')) {
+      cookieName = 'sessionKey';
+      hint = 'claude';
+    } else if (input.length === 32 || input.length === 64) {
+      cookieName = 'userToken';
+      hint = 'deepseek';
+    }
     return {
-      cookie: input,
-      providerHint: 'chatgpt',
+      cookie: `${cookieName}=${input}`,
+      providerHint: hint,
       reassembledSplitToken: false,
       droppedCount: 0,
-      notes: ['Treated as a bare session token.'],
+      notes: [`Formatted bare token into standard cookie (${cookieName}).`],
     };
   }
 

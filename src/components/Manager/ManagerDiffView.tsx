@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, FileCode, Loader2, X } from 'lucide-react';
+import { ExternalLink, FileCode, Loader2, RotateCcw, X } from 'lucide-react';
 import { useIDEStore } from '../../stores/ideStore.js';
 
 /**
@@ -226,8 +226,48 @@ export const ManagerDiffView: React.FC<{
   onOpenInIde: (path: string) => void;
 }> = ({ open, entries, onClose, onOpenInIde }) => {
   const [activePath, setActivePath] = useState<string | null>(entries[0]?.path ?? null);
+  const [isReverting, setIsReverting] = useState(false);
+  const [revertMessage, setRevertMessage] = useState<string | null>(null);
   const [, forceRender] = useState(0);
   const cacheRef = useRef<Map<string, ResolvedFile>>(new Map());
+
+  const handleRevertFile = async () => {
+    if (!activeEntry || isReverting) return;
+    setIsReverting(true);
+    setRevertMessage(null);
+    try {
+      const res = await fetch('/api/git/revert-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: activeEntry.path }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setRevertMessage('Reverted');
+        cacheRef.current.delete(activeEntry.path);
+        useIDEStore.getState().recordReviewDiff({
+          path: activeEntry.path,
+          tool: 'revert',
+          originalContent: null,
+          proposedContent: null,
+          capturedAt: Date.now(),
+        });
+        useIDEStore.getState().triggerFileTreeRefresh();
+        const fresh = await resolveFile(activeEntry);
+        cacheRef.current.set(activeEntry.path, fresh);
+        forceRender((tick) => tick + 1);
+        setTimeout(() => setRevertMessage(null), 2500);
+      } else {
+        setRevertMessage(`Failed: ${data.error || 'revert failed'}`);
+        setTimeout(() => setRevertMessage(null), 3500);
+      }
+    } catch (err: any) {
+      setRevertMessage(`Error: ${err.message}`);
+      setTimeout(() => setRevertMessage(null), 3500);
+    } finally {
+      setIsReverting(false);
+    }
+  };
 
   // Select the first changed file whenever the overlay opens
   useEffect(() => {
@@ -302,7 +342,7 @@ export const ManagerDiffView: React.FC<{
     <div className="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8" role="dialog" aria-label="Review changes">
       <div className="fixed inset-0" aria-hidden="true" onClick={onClose} />
       <div
-        className="relative w-full max-w-5xl h-[82vh] rounded-xl border border-white/15 bg-obsidian-surface1 shadow-elevation flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        className="relative w-full max-w-5xl h-[82vh] rounded-xl border border-obsidian-border bg-obsidian-surface1 shadow-elevation flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -315,11 +355,27 @@ export const ManagerDiffView: React.FC<{
             </span>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
+            {activeEntry && (
+              <button
+                type="button"
+                onClick={handleRevertFile}
+                disabled={isReverting}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-obsidian-border bg-obsidian-surface2 hover:bg-rose-500/15 hover:border-rose-500/30 hover:text-rose-300 text-[11px] font-mono uppercase tracking-wider text-obsidian-inkSecondary transition-colors duration-150 cursor-pointer disabled:opacity-50"
+                title="Discard agent changes and revert this file to original"
+              >
+                {isReverting ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-3 h-3" />
+                )}
+                <span>Revert</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => activeEntry && onOpenInIde(activeEntry.path)}
               disabled={!activeEntry}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-white/15 bg-white/[0.06] hover:bg-white/[0.12] text-[11px] font-mono uppercase tracking-wider text-obsidian-inkPrimary transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-obsidian-border bg-obsidian-surface2 hover:bg-obsidian-surface3 text-[11px] font-mono uppercase tracking-wider text-obsidian-inkPrimary transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-borderBright disabled:opacity-50 disabled:cursor-not-allowed"
               title="Open the selected file in the IDE workspace"
             >
               <ExternalLink className="w-3 h-3" aria-hidden="true" />
@@ -330,7 +386,7 @@ export const ManagerDiffView: React.FC<{
               onClick={onClose}
               aria-label="Close review"
               title="Close (Esc)"
-              className="p-1.5 rounded-md text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-white/[0.07] transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+              className="p-1.5 rounded-md text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-border"
             >
               <X className="w-4 h-4" aria-hidden="true" />
             </button>
@@ -351,15 +407,15 @@ export const ManagerDiffView: React.FC<{
                   aria-selected={isActive}
                   onClick={() => setActivePath(entry.path)}
                   title={entry.path}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-t-md text-[11px] font-mono whitespace-nowrap transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 ${
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-t-md text-[11px] font-mono whitespace-nowrap transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-border ${
                     isActive
-                      ? 'bg-obsidian-surface2 text-obsidian-inkPrimary border border-b-0 border-white/15'
-                      : 'text-obsidian-inkMuted hover:text-obsidian-inkSecondary hover:bg-white/[0.04]'
+                      ? 'bg-obsidian-surface2 text-obsidian-inkPrimary border border-b-0 border-obsidian-border'
+                      : 'text-obsidian-inkMuted hover:text-obsidian-inkSecondary hover:bg-obsidian-surface1'
                   }`}
                 >
                   <span className="max-w-[180px] truncate">{basename(entry.path)}</span>
                   {entryResolved?.isNewFile && (
-                    <span className="px-1 rounded bg-emerald-500/15 text-emerald-300 text-[9px] uppercase tracking-wider">new</span>
+                    <span className="px-1 rounded bg-obsidian-inkPrimary text-obsidian-canvas text-[9px] uppercase tracking-wider">new</span>
                   )}
                 </button>
               );
@@ -410,20 +466,63 @@ export const ManagerDiffView: React.FC<{
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between gap-3 px-4 h-9 border-t border-obsidian-hairline shrink-0">
-          <span className="truncate text-[10px] font-mono text-obsidian-inkMuted" title={activeEntry?.path}>
-            {activeEntry?.path}
-          </span>
-          <span className="shrink-0 text-[10px] font-mono text-obsidian-inkMuted">
-            {resolvedActive?.isNewFile ? 'new file' : `${rows?.length ?? 0} rows`}
-          </span>
+        <div className="flex items-center justify-between gap-3 px-4 h-11 border-t border-obsidian-hairline bg-obsidian-surface1 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="truncate text-[11px] font-mono text-obsidian-inkSecondary" title={activeEntry?.path}>
+              {activeEntry?.path}
+            </span>
+            <span className="shrink-0 text-[10px] font-mono text-obsidian-inkMuted px-1.5 py-0.5 rounded bg-obsidian-surface1 border border-obsidian-hairline">
+              {resolvedActive?.isNewFile ? 'new file' : `${rows?.length ?? 0} lines`}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {revertMessage && (
+              <span className={`text-[11px] font-mono ${revertMessage.startsWith('Failed') || revertMessage.startsWith('Error') ? 'text-rose-400' : 'text-emerald-400'}`}>
+                {revertMessage}
+              </span>
+            )}
+            {activeEntry && (
+              <button
+                type="button"
+                onClick={handleRevertFile}
+                disabled={isReverting}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-obsidian-border bg-obsidian-surface2 hover:bg-rose-500/15 hover:border-rose-500/30 hover:text-rose-300 text-xs font-mono uppercase tracking-wider text-obsidian-inkSecondary transition-colors cursor-pointer disabled:opacity-50"
+                title="Discard agent changes and revert this file to original"
+              >
+                {isReverting ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-3 h-3" />
+                )}
+                <span>Revert File</span>
+              </button>
+            )}
+            {activeEntry && (
+              <button
+                type="button"
+                onClick={() => onOpenInIde(activeEntry.path)}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-lg border border-obsidian-border bg-obsidian-surface2 hover:bg-obsidian-surface3 text-xs font-mono uppercase tracking-wider text-obsidian-inkPrimary transition-colors cursor-pointer"
+              >
+                <ExternalLink className="w-3 h-3" />
+                <span>Open in IDE</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3.5 py-1 rounded-lg bg-obsidian-accent text-obsidian-inkInverse hover:bg-obsidian-accentHover text-xs font-medium transition-colors cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
-/** Collects distinct paths with completed write/edit/delete calls, latest call wins. */
+/** Collects distinct paths with completed write/edit/delete calls, latest call wins. Filters internal IDE artifacts. */
 export const collectChangedFiles = (messages: { toolCalls?: unknown }[]): ManagerDiffEntry[] => {
   const byPath = new Map<string, ManagerDiffEntry>();
   const messagesAny = messages as Array<{ toolCalls?: Array<{ tool: string; params?: Record<string, any>; status?: string }> }>;
@@ -433,6 +532,8 @@ export const collectChangedFiles = (messages: { toolCalls?: unknown }[]): Manage
       if (tc.status !== 'completed') continue;
       const path = typeof tc.params?.path === 'string' ? tc.params.path : '';
       if (!path) continue;
+      const norm = path.replace(/\\/g, '/');
+      if (norm.startsWith('.sutra') || norm.includes('/.sutra/') || norm === 'task_plan.md' || norm.endsWith('/task_plan.md')) continue;
       byPath.set(path, { path, tool: tc.tool });
     }
   }

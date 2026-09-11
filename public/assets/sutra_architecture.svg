@@ -1,0 +1,181 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="100%" height="100%" style="background:#0d0e12; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+  <defs>
+    <linearGradient id="grad-header" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#818cf8" stop-opacity="0.9"/>
+    </linearGradient>
+    <linearGradient id="card-client" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#181a20"/>
+      <stop offset="100%" stop-color="#12141a"/>
+    </linearGradient>
+    <linearGradient id="card-harness" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1a1f2c"/>
+      <stop offset="100%" stop-color="#121622"/>
+    </linearGradient>
+    <linearGradient id="card-swarm" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1c221c"/>
+      <stop offset="100%" stop-color="#121813"/>
+    </linearGradient>
+    <linearGradient id="card-memory" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#221d19"/>
+      <stop offset="100%" stop-color="#171311"/>
+    </linearGradient>
+    <linearGradient id="accent-green" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#34d399"/>
+    </linearGradient>
+    <linearGradient id="accent-cyan" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+    <linearGradient id="accent-purple" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#a78bfa"/>
+    </linearGradient>
+    <linearGradient id="accent-amber" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#fbbf24"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Title & Header -->
+  <g transform="translate(50, 40)">
+    <rect x="0" y="0" width="1100" height="70" rx="12" fill="#14161d" stroke="#262a36" stroke-width="1.5" />
+    <circle cx="35" cy="35" r="16" fill="url(#grad-header)" />
+    <text x="35" y="41" font-size="14" font-weight="bold" fill="#0d0e12" text-anchor="middle">S</text>
+    <text x="65" y="36" font-size="18" font-weight="700" fill="#ffffff" letter-spacing="0.5">SUTRA IDE &amp; AUTONOMOUS AGENTIC HARNESS</text>
+    <text x="65" y="54" font-size="11" font-weight="500" fill="#94a3b8" font-family="monospace">ARCHITECTURE BLUEPRINT • FULL-STACK RUNTIME • HARNESS SPEC V2.4</text>
+    <rect x="960" y="20" width="115" height="28" rx="6" fill="#1e293b" stroke="#334155" />
+    <circle cx="975" cy="34" r="4" fill="#10b981" />
+    <text x="987" y="38" font-size="10" font-weight="600" fill="#38bdf8" font-family="monospace">ACTIVE HARNESS</text>
+  </g>
+
+  <!-- Tier 1: Client & User Experience -->
+  <g transform="translate(50, 130)">
+    <rect x="0" y="0" width="535" height="340" rx="12" fill="url(#card-client)" stroke="#262a36" stroke-width="1.5" />
+    <rect x="20" y="16" width="140" height="22" rx="4" fill="#1e293b" />
+    <text x="28" y="31" font-size="10" font-weight="700" fill="#38bdf8" font-family="monospace">1. FRONTEND CLIENT</text>
+
+    <!-- Sub-boxes -->
+    <rect x="20" y="50" width="235" height="125" rx="8" fill="#1a1d26" stroke="#2e3444" />
+    <text x="32" y="72" font-size="12" font-weight="600" fill="#f8fafc">Manager Mode &amp; Feed</text>
+    <text x="32" y="92" font-size="10" fill="#94a3b8">• Hero Greeting &amp; Composer</text>
+    <text x="32" y="108" font-size="10" fill="#94a3b8">• In-Place Question Anchoring</text>
+    <text x="32" y="124" font-size="10" fill="#94a3b8">• Live Review Diffs &amp; Session Pins</text>
+    <text x="32" y="140" font-size="10" fill="#94a3b8">• Scheduled Tasks Automation</text>
+    <text x="32" y="158" font-size="10" fill="#34d399" font-family="monospace">Status: Zero-Drift Anchored</text>
+
+    <rect x="275" y="50" width="240" height="125" rx="8" fill="#1a1d26" stroke="#2e3444" />
+    <text x="287" y="72" font-size="12" font-weight="600" fill="#f8fafc">IDE Studio &amp; Workspaces</text>
+    <text x="287" y="92" font-size="10" fill="#94a3b8">• Monaco Multi-Tab Code Editor</text>
+    <text x="287" y="108" font-size="10" fill="#94a3b8">• Real-Time Syncing File Tree</text>
+    <text x="287" y="124" font-size="10" fill="#94a3b8">• Interactive ConPTY Terminal</text>
+    <text x="287" y="140" font-size="10" fill="#94a3b8">• Live Browser Viewport Preview</text>
+    <text x="287" y="158" font-size="10" fill="#38bdf8" font-family="monospace">Status: Real-Time Synced</text>
+
+    <rect x="20" y="190" width="495" height="130" rx="8" fill="#1a1d26" stroke="#2e3444" />
+    <text x="32" y="212" font-size="12" font-weight="600" fill="#f8fafc">Activity Panel &amp; Live Task Plan (0 ms Lag)</text>
+    <rect x="32" y="225" width="471" height="6" rx="3" fill="#262b3a" />
+    <rect x="32" y="225" width="320" height="6" rx="3" fill="url(#accent-green)" />
+    <text x="32" y="248" font-size="10" fill="#94a3b8">[x] Analyze codebase structure &amp; dependencies</text>
+    <text x="32" y="264" font-size="10" fill="#fbbf24">[⏳] Implement parallel tool batching &amp; port verification</text>
+    <text x="32" y="280" font-size="10" fill="#64748b">[ ] Run hardware-in-the-loop verification tests</text>
+    <text x="32" y="302" font-size="10" fill="#38bdf8" font-family="monospace">Derived from WebSocket Tool Stream with 0 ms Latency</text>
+  </g>
+
+  <!-- Tier 2: Agentic Harness & Engine -->
+  <g transform="translate(615, 130)">
+    <rect x="0" y="0" width="535" height="340" rx="12" fill="url(#card-harness)" stroke="#262a36" stroke-width="1.5" />
+    <rect x="20" y="16" width="150" height="22" rx="4" fill="#1e293b" />
+    <text x="28" y="31" font-size="10" font-weight="700" fill="#818cf8" font-family="monospace">2. AUTONOMOUS HARNESS</text>
+
+    <!-- Sub-boxes -->
+    <rect x="20" y="50" width="235" height="125" rx="8" fill="#161b26" stroke="#2a3245" />
+    <text x="32" y="72" font-size="12" font-weight="600" fill="#f8fafc">Model Router &amp; Failover</text>
+    <text x="32" y="92" font-size="10" fill="#94a3b8">• Multi-Provider Gateway</text>
+    <text x="32" y="108" font-size="10" fill="#94a3b8">• Seamless In-Flight Failover</text>
+    <text x="32" y="124" font-size="10" fill="#94a3b8">• Adaptive Token Compaction</text>
+    <text x="32" y="140" font-size="10" fill="#94a3b8">• Custom Model Hot-Loading</text>
+    <text x="32" y="158" font-size="10" fill="#a78bfa" font-family="monospace">Status: Resilient Gateway</text>
+
+    <rect x="275" y="50" width="240" height="125" rx="8" fill="#161b26" stroke="#2a3245" />
+    <text x="287" y="72" font-size="12" font-weight="600" fill="#f8fafc">Execution Safety Sentinels</text>
+    <text x="287" y="92" font-size="10" fill="#94a3b8">• Stagnation &amp; Loop Sentinel</text>
+    <text x="287" y="108" font-size="10" fill="#94a3b8">• Pre-Mutation Git Checkpoints</text>
+    <text x="287" y="124" font-size="10" fill="#94a3b8">• Ephemeral Worktrees Isolator</text>
+    <text x="287" y="140" font-size="10" fill="#94a3b8">• Test Integrity Invariant (Devin)</text>
+    <text x="287" y="158" font-size="10" fill="#34d399" font-family="monospace">Status: Zero-Destruction Safe</text>
+
+    <rect x="20" y="190" width="495" height="130" rx="8" fill="#161b26" stroke="#2a3245" />
+    <text x="32" y="212" font-size="12" font-weight="600" fill="#f8fafc">General Build-and-Verify Loop (AVO Core)</text>
+    <text x="32" y="232" font-size="10" fill="#94a3b8">1. UNDERSTAND: Model Intent &amp; Workflows • 2. MODEL: State, Logic &amp; Invariants</text>
+    <text x="32" y="248" font-size="10" fill="#94a3b8">3. PLAN: Surgical Task Decomposition • 4. IMPLEMENT: Mandatory Disk Writes</text>
+    <text x="32" y="264" font-size="10" fill="#94a3b8">5. VERIFY: Runtime Port Probing + Typecheck + Tests • 6. DIAGNOSE: 5-Whys Analysis</text>
+    <text x="32" y="280" font-size="10" fill="#94a3b8">7. EVOLVE: Commit Pareto-Optimal Variation Pool to Long-Horizon Memory</text>
+    <text x="32" y="302" font-size="10" fill="#818cf8" font-family="monospace">Loop State: 100% Autonomous Continuous Execution</text>
+  </g>
+
+  <!-- Connectors Top -->
+  <path d="M 585 300 L 615 300" stroke="#38bdf8" stroke-width="2" stroke-dasharray="4 4" />
+  <polygon points="615,300 607,296 607,304" fill="#38bdf8" />
+
+  <!-- Tier 3: Parallel Swarm & Runtime Execution -->
+  <g transform="translate(50, 490)">
+    <rect x="0" y="0" width="535" height="350" rx="12" fill="url(#card-swarm)" stroke="#262a36" stroke-width="1.5" />
+    <rect x="20" y="16" width="190" height="22" rx="4" fill="#1e293b" />
+    <text x="28" y="31" font-size="10" font-weight="700" fill="#34d399" font-family="monospace">3. SWARM &amp; RUNTIME TOOLS</text>
+
+    <!-- Sub-boxes -->
+    <rect x="20" y="50" width="495" height="115" rx="8" fill="#141c15" stroke="#223324" />
+    <text x="32" y="72" font-size="12" font-weight="600" fill="#f8fafc">Specialist Autonomous Subagent Swarm</text>
+    <text x="32" y="92" font-size="10" fill="#94a3b8">• Frontend Engineer (UI/UX, Tailwind, Responsive)</text>
+    <text x="32" y="108" font-size="10" fill="#94a3b8">• Backend Engineer (REST/GraphQL, SQLite, Controllers)</text>
+    <text x="32" y="124" font-size="10" fill="#94a3b8">• Test &amp; Security Auditor (Vitest, Guardrails, WCAG)</text>
+    <text x="32" y="140" font-size="10" fill="#94a3b8">• Codebase Researcher &amp; Visual Designer (SVGs, Icons)</text>
+    <text x="32" y="158" font-size="10" fill="#34d399" font-family="monospace">Orchestration: Parallel Tool Batching &amp; Sequential Mutex</text>
+
+    <rect x="20" y="180" width="495" height="145" rx="8" fill="#141c15" stroke="#223324" />
+    <text x="32" y="202" font-size="12" font-weight="600" fill="#f8fafc">Runtime Execution &amp; Port Verification</text>
+    <text x="32" y="222" font-size="10" fill="#94a3b8">• Auto-Backgrounding: Dev servers / watchers auto-promoted</text>
+    <text x="32" y="238" font-size="10" fill="#94a3b8">• Port Detection: python http.server 8000, Vite, Next, Node, FastAPI</text>
+    <text x="32" y="254" font-size="10" fill="#94a3b8">• Server Invariant: Never claim live without runtime verification</text>
+    <text x="32" y="270" font-size="10" fill="#94a3b8">• verify_http_server: Probes real HTTP 200 responses on ports</text>
+    <text x="32" y="286" font-size="10" fill="#94a3b8">• Process Liveness &amp; Recovery: Auto-retries failed ports &amp; clears collisions</text>
+    <text x="32" y="308" font-size="10" fill="#34d399" font-family="monospace">Runtime Status: 100% Real Ports Monitored</text>
+  </g>
+
+  <!-- Tier 4: Long-Horizon Memory & Evolution -->
+  <g transform="translate(615, 490)">
+    <rect x="0" y="0" width="535" height="350" rx="12" fill="url(#card-memory)" stroke="#262a36" stroke-width="1.5" />
+    <rect x="20" y="16" width="210" height="22" rx="4" fill="#1e293b" />
+    <text x="28" y="31" font-size="10" font-weight="700" fill="#fbbf24" font-family="monospace">4. 5-TIER MEMORY &amp; EVOLUTION</text>
+
+    <!-- Sub-boxes -->
+    <rect x="20" y="50" width="495" height="115" rx="8" fill="#1c1815" stroke="#33271f" />
+    <text x="32" y="72" font-size="12" font-weight="600" fill="#f8fafc">Durable 5-Tier Memory Subsystem</text>
+    <text x="32" y="92" font-size="10" fill="#94a3b8">1. Lessons: Past failures &amp; anti-patterns to avoid</text>
+    <text x="32" y="108" font-size="10" fill="#94a3b8">2. Preferences: User styling tokens &amp; architectural choices</text>
+    <text x="32" y="124" font-size="10" fill="#94a3b8">3. Environment: Discovered OS, port, and hardware constraints</text>
+    <text x="32" y="140" font-size="10" fill="#94a3b8">4. Architecture: Contracts, symbol graph &amp; component maps</text>
+    <text x="32" y="158" font-size="10" fill="#fbbf24" font-family="monospace">On-Demand Recall: Semantic ranking with zero prompt bloat</text>
+
+    <rect x="20" y="180" width="495" height="145" rx="8" fill="#1c1815" stroke="#33271f" />
+    <text x="32" y="202" font-size="12" font-weight="600" fill="#f8fafc">Autonomous Evolution &amp; Reasoning Engine</text>
+    <text x="32" y="222" font-size="10" fill="#94a3b8">• Hypothesis Formulator: Generates structured fix hypotheses</text>
+    <text x="32" y="238" font-size="10" fill="#94a3b8">• Hardware Loop Verifier: Measures cold starts, FPS &amp; I/O lag</text>
+    <text x="32" y="254" font-size="10" fill="#94a3b8">• Reason Discovery: Extracts workspace rules automatically</text>
+    <text x="32" y="270" font-size="10" fill="#94a3b8">• Pareto Version Commitment: Commits optimal solution candidate</text>
+    <text x="32" y="286" font-size="10" fill="#94a3b8">• Codebase Indexer: BM25 keyword + Symbol Ranking Search</text>
+    <text x="32" y="308" font-size="10" fill="#fbbf24" font-family="monospace">Evolution Status: Continuous Self-Improvement Active</text>
+  </g>
+
+  <!-- Connectors Bottom -->
+  <path d="M 585 665 L 615 665" stroke="#34d399" stroke-width="2" stroke-dasharray="4 4" />
+  <polygon points="615,665 607,661 607,669" fill="#34d399" />
+
+  <path d="M 317 470 L 317 490" stroke="#38bdf8" stroke-width="2" stroke-dasharray="4 4" />
+  <polygon points="317,490 313,482 321,482" fill="#38bdf8" />
+
+  <path d="M 882 470 L 882 490" stroke="#818cf8" stroke-width="2" stroke-dasharray="4 4" />
+  <polygon points="882,490 878,482 886,482" fill="#818cf8" />
+</svg>

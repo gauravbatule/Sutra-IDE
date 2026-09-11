@@ -11,7 +11,7 @@ const PROVIDER_NAME = 'ChatGPT Web';
  * When discovery succeeds, these hardcoded ids are dropped from the catalog —
  * the session's own slugs are surfaced verbatim instead.
  */
-export const CHATGPT_WEB_FALLBACK_MODEL_IDS = ['luna', 'gpt-5'];
+export const CHATGPT_WEB_FALLBACK_MODEL_IDS = ['auto', 'gpt-4o', 'gpt-4o-mini', 'gpt-5', 'o1', 'o3-mini', 'luna'];
 
 /** The exact message required when the pasted ChatGPT cookie is no longer valid. */
 function sessionExpiredError(): ProviderError {
@@ -188,6 +188,89 @@ export class ChatGPTWebProvider {
   }
 
   /**
+   * Solves OpenAI Sentinel Proof-of-Work challenge using SHA3-512 to bypass Cloudflare Turnstile bot blocks.
+   */
+  private solveProofOfWork(seed: string, difficulty: string): string | null {
+    try {
+      const diffLen = Math.floor(difficulty.length / 2);
+      const target = parseInt(difficulty, 16);
+      const config = [
+        "1920x1080",
+        new Date().toUTCString(),
+        4294705152,
+        0,
+        BROWSER_UA,
+        "fallback",
+        "en-US",
+        "en-US,en"
+      ];
+
+      for (let i = 0; i < 500000; i++) {
+        config[3] = i;
+        const base64Config = Buffer.from(JSON.stringify(config)).toString('base64');
+        const hash = crypto.createHash('sha3-512').update(seed + base64Config).digest();
+        let prefix = 0;
+        for (let j = 0; j < diffLen; j++) {
+          prefix = prefix * 256 + hash[j];
+        }
+        if (prefix <= target) {
+          return `gAAAAAB${base64Config}`;
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetches the modern sentinel chat requirements and computes Proof-of-Work to pass OpenAI anti-bot verification.
+   */
+  private async getChatRequirements(accessToken: string, cookieString: string, deviceId: string): Promise<{ token?: string; proofToken?: string } | null> {
+    try {
+      const endpoints = [
+        'https://chatgpt.com/backend-api/sentinel/chat-requirements',
+        'https://chatgpt.com/backend-api/chat-requirements',
+      ];
+      for (const ep of endpoints) {
+        try {
+          const res = await fetch(ep, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Cookie': cookieString,
+              'Content-Type': 'application/json',
+              'User-Agent': BROWSER_UA,
+              'OAI-Device-Id': deviceId,
+              'Referer': 'https://chatgpt.com/',
+              'Origin': 'https://chatgpt.com',
+            },
+            body: JSON.stringify({}),
+            signal: AbortSignal.timeout(5000),
+          });
+          if (res.ok) {
+            const data: any = await res.json();
+            let proofToken: string | undefined = undefined;
+            if (data?.proofofwork?.required && data?.proofofwork?.seed && data?.proofofwork?.difficulty) {
+              const solved = this.solveProofOfWork(data.proofofwork.seed, data.proofofwork.difficulty);
+              if (solved) proofToken = solved;
+            }
+            return {
+              token: data?.token ? String(data.token) : undefined,
+              proofToken
+            };
+          }
+        } catch {
+          // Try next endpoint
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Streams chat completions from ChatGPT Web using the session access token.
    * Yields text deltas, generated image URLs, thinking/status hints, errors, and done.
    * Failures before streaming starts are thrown as ProviderError carrying the normalized
@@ -201,44 +284,100 @@ export class ChatGPTWebProvider {
     model?: string;
     signal?: AbortSignal;
   }): AsyncGenerator<{ delta?: string; done?: boolean; error?: string; thinking?: string; imageUrl?: string }> {
+    const normalized = normalizeCookieBlob(params.cookieString);
     const tokenResult = await this.acquireToken(params.cookieString);
     if (!tokenResult.ok) {
       throw tokenResult.failure;
     }
     const accessToken = tokenResult.token;
+    const cookieString = normalized.cookie;
 
     const lastMsg = params.messages[params.messages.length - 1];
     const promptText = typeof lastMsg?.content === 'string' ? lastMsg.content : JSON.stringify(lastMsg?.content || '');
 
-    // Format full prompt context
+    // Format prompt cleanly for ChatGPT Web session
     let fullPrompt = '';
-    if (params.systemPrompt) {
-      fullPrompt += `[System Instructions]\n${params.systemPrompt}\n\n`;
+    if (params.systemPrompt && params.systemPrompt.trim().length > 0) {
+      const cleanSystem = params.systemPrompt
+        .replace(/### RELEVANT CODEBASE SYMBOLS[\s\S]*?(?=### CORE AGENT CONTRACT|###|$)/gi, '')
+        .replace(/ACTIVE EDITOR & CURSOR TELEMETRY[\s\S]*?(?=### CORE AGENT CONTRACT|###|$)/gi, '')
+        .replace(/WORKSPACE SNAPSHOT[\s\S]*?(?=###|$)/gi, '')
+        .replace(/LONG-TERM COGNITIVE MEMORY[\s\S]*?(?=###|$)/gi, '')
+        .replace(/--- USER-CONFIGURED CUSTOM MODELS[\s\S]*?---/gi, '')
+        .replace(/\[System Instructions\]/gi, '')
+        .trim();
+      if (cleanSystem.length > 0) {
+        fullPrompt += `[System Instructions: ${cleanSystem.slice(0, 1500)}]\n\n`;
+      }
+    }
+
+    // Tool-calling bridge for the cookie-based ChatGPT Web session — the public
+    // web endpoint does not accept native function-calling like the OpenAI API.
+    // When the system prompt advertises a tool catalog (the harness injects
+    // `## TOOL CATALOG` blocks), append a directive that tells the model to
+    // emit calls as fenced JSON. The SUTRA harness's
+    // `extractAndStripTextToolCalls` (Pattern 5) then parses them.
+    if (/###?\s+TOOL CATALOG|###?\s+FUNCTION CATOG|## AVAILABLE TOOLS/i.test(params.systemPrompt || '')) {
+      fullPrompt +=
+        `\n[Tool Calling Protocol — REQUIRED when you need to act on the workspace]\n` +
+        `You do not have native function calling. When the task requires a tool, output a SINGLE fenced JSON block on its own line, exactly as shown:\n\n` +
+        '```json\n{"name": "<tool_name>", "arguments": { <json-arguments> }}\n```\n\n' +
+        `Rules:\n` +
+        ` - Emit exactly one fenced JSON block per tool call.\n` +
+        ` - Use the exact tool name from the catalog (case-sensitive).\n` +
+        ` - Put every required argument in the "arguments" object; never invent fields.\n` +
+        ` - Do not output any other text on the same line as the fence.\n` +
+        ` - After the tool result is provided, continue normally.\n` +
+        `If the user's request is conversational and no tool is required, just answer normally — do not emit a JSON fence.\n\n`;
     }
     if (params.messages.length > 1) {
-      const history = params.messages.slice(-16, -1).map((m: any) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
+      const convMsgs = params.messages
+        .slice(0, -1)
+        .filter((m: any) => m.role === 'user' || m.role === 'assistant')
+        .filter((m: any) => {
+          const c = typeof m.content === 'string' ? m.content.trim() : '';
+          return !c.startsWith('{"success"') && !c.startsWith('{"error"') && !c.startsWith('[Attached @') && !c.includes('Syntax Alert:');
+        })
+        .slice(-6);
+
+      const history = convMsgs
+        .map((m: any) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`)
+        .join('\n\n');
+
       if (history) {
         fullPrompt += `[Conversation History]\n${history}\n\n`;
       }
     }
-    fullPrompt += `USER: ${promptText}`;
+    fullPrompt += (fullPrompt.length > 0 ? `User: ${promptText}` : promptText);
 
-    // Model passthrough: only fall back to 'auto' when no explicit model was requested
-    const modelSlug = params.model && params.model.trim().length > 0 ? params.model.trim() : 'auto';
+    // Model passthrough: default to 'auto' when no explicit model
+    const modelSlug = params.model && params.model.trim().length > 0 && params.model.trim() !== 'auto' ? params.model.trim() : 'auto';
+    const deviceId = crypto.randomUUID();
+    const sentinelInfo = await this.getChatRequirements(accessToken, cookieString, deviceId);
+
+    const reqHeaders: Record<string, string> = {
+      'Authorization': `Bearer ${accessToken}`,
+      'Cookie': params.cookieString,
+      'Content-Type': 'application/json',
+      'User-Agent': BROWSER_UA,
+      'Accept': 'text/event-stream',
+      'Referer': 'https://chatgpt.com/',
+      'Origin': 'https://chatgpt.com',
+      'OAI-Device-Id': deviceId,
+    };
+    if (sentinelInfo?.token) {
+      reqHeaders['openai-sentinel-chat-requirements-token'] = sentinelInfo.token;
+      reqHeaders['openai-sentinel-chat-requirements-prepare-token'] = sentinelInfo.token;
+    }
+    if (sentinelInfo?.proofToken) {
+      reqHeaders['openai-sentinel-proof-token'] = sentinelInfo.proofToken;
+    }
 
     let res: Response;
     try {
       res = await fetch('https://chatgpt.com/backend-api/conversation', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Cookie': params.cookieString,
-          'Content-Type': 'application/json',
-          'User-Agent': BROWSER_UA,
-          'Accept': 'text/event-stream',
-          'Referer': 'https://chatgpt.com/',
-          'Origin': 'https://chatgpt.com',
-        },
+        headers: reqHeaders,
         body: JSON.stringify({
           action: 'next',
           messages: [
@@ -263,7 +402,48 @@ export class ChatGPTWebProvider {
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      throw this.classifyConversationFailure(res.status, errText, modelSlug);
+      const lowerErr = errText.toLowerCase();
+      const isModelError =
+        res.status === 404 ||
+        ((res.status === 400 || res.status === 422) &&
+          (lowerErr.includes('model') || lowerErr.includes('not found') || lowerErr.includes('invalid') || lowerErr.includes('unavailable')));
+
+      // Auto-fallback: if a specific model like 'luna' was requested but rejected by the backend,
+      // seamlessly retry once with 'auto' to ensure the user's conversation succeeds.
+      if (isModelError && modelSlug !== 'auto') {
+        console.warn(`[ChatGPTWebProvider] Model '${modelSlug}' was rejected by ChatGPT Web (HTTP ${res.status}). Retrying with 'auto'...`);
+        yield { thinking: `Model "${modelSlug}" is not directly selectable in this session — routing via ChatGPT Auto.` };
+        try {
+          res = await fetch('https://chatgpt.com/backend-api/conversation', {
+            method: 'POST',
+            headers: reqHeaders,
+            body: JSON.stringify({
+              action: 'next',
+              messages: [
+                {
+                  id: crypto.randomUUID(),
+                  author: { role: 'user' },
+                  content: { content_type: 'text', parts: [fullPrompt] },
+                  metadata: {},
+                },
+              ],
+              model: 'auto',
+              parent_message_id: crypto.randomUUID(),
+              timezone_offset_min: -330,
+              history_and_training_disabled: true,
+            }),
+            signal: params.signal,
+          });
+        } catch (retryErr: any) {
+          if (params.signal?.aborted) throw retryErr;
+          throw transientNetworkError(retryErr);
+        }
+      }
+
+      if (!res.ok) {
+        const retryErrText = await res.text().catch(() => '');
+        throw this.classifyConversationFailure(res.status, retryErrText || errText, modelSlug);
+      }
     }
 
     if (!res.body) {
@@ -277,75 +457,86 @@ export class ChatGPTWebProvider {
     const seenImagePointers = new Set<string>();
     let sentImageThinking = false;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith(':')) continue;
-        if (trimmed === 'data: [DONE]') {
-          yield { done: true };
-          return;
-        }
-        if (!trimmed.startsWith('data: ')) continue;
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith(':')) continue;
+          if (trimmed === 'data: [DONE]') {
+            yield { done: true };
+            return;
+          }
+          if (!trimmed.startsWith('data: ')) continue;
 
-        let data: any;
-        try {
-          data = JSON.parse(trimmed.slice(6));
-        } catch {
-          continue;
-        }
+          let data: any;
+          try {
+            data = JSON.parse(trimmed.slice(6));
+          } catch {
+            continue;
+          }
 
-        // Top-level error payload — sanitize to one human sentence, never raw JSON.
-        if (data?.error?.message) {
-          const rawMessage = String(data.error.message);
-          yield { error: this.humanizeUpstreamMessage(rawMessage, modelSlug) };
-          continue;
-        }
+          // Top-level error payload — sanitize to one human sentence, never raw JSON.
+          if (data?.error?.message) {
+            const rawMessage = String(data.error.message);
+            yield { error: this.humanizeUpstreamMessage(rawMessage, modelSlug) };
+            continue;
+          }
 
-        const metadata = data?.message?.metadata;
+          const metadata = data?.message?.metadata;
 
-        // DALL-E generation status hint
-        if (metadata?.dalle?.status === 'generating' && !sentImageThinking) {
-          sentImageThinking = true;
-          yield { thinking: 'Generating image...' };
-        }
+          // DALL-E generation status hint
+          if (metadata?.dalle?.status === 'generating' && !sentImageThinking) {
+            sentImageThinking = true;
+            yield { thinking: 'Generating image...' };
+          }
 
-        // Moderation-blocked responses
-        if (metadata?.finish_details?.type === 'blocked') {
-          yield { error: 'ChatGPT blocked this response due to its content policy. Rephrase the request and try again.' };
-          continue;
-        }
+          // Moderation-blocked responses
+          if (metadata?.finish_details?.type === 'blocked') {
+            yield { error: 'ChatGPT blocked this response due to its content policy. Rephrase the request and try again.' };
+            continue;
+          }
 
-        const parts = data?.message?.content?.parts;
-        if (!Array.isArray(parts)) continue;
+          // Only stream assistant messages (skip echoed user message parts)
+          if (data?.message?.author?.role && data.message.author.role !== 'assistant') {
+            continue;
+          }
 
-        // Text lives in string parts; generated images appear as image_asset_pointer objects
-        let currentFullText = '';
-        for (const part of parts) {
-          if (typeof part === 'string') {
-            currentFullText += part;
-          } else if (part && typeof part === 'object' && part.content_type === 'image_asset_pointer') {
-            const pointer = part.asset_pointer;
-            if (typeof pointer === 'string' && pointer.startsWith('http') && !seenImagePointers.has(pointer)) {
-              seenImagePointers.add(pointer);
-              yield { imageUrl: pointer };
+          const parts = data?.message?.content?.parts;
+          if (!Array.isArray(parts)) continue;
+
+          // Text lives in string parts; generated images appear as image_asset_pointer objects
+          let currentFullText = '';
+          for (const part of parts) {
+            if (typeof part === 'string') {
+              currentFullText += part;
+            } else if (part && typeof part === 'object' && part.content_type === 'image_asset_pointer') {
+              const pointer = part.asset_pointer;
+              if (typeof pointer === 'string' && pointer.startsWith('http') && !seenImagePointers.has(pointer)) {
+                seenImagePointers.add(pointer);
+                yield { imageUrl: pointer };
+              }
             }
           }
-        }
-        if (currentFullText.length > lastSentText.length) {
-          const newDelta = currentFullText.slice(lastSentText.length);
-          lastSentText = currentFullText;
-          yield { delta: newDelta };
+          if (currentFullText.length > lastSentText.length) {
+            const newDelta = currentFullText.slice(lastSentText.length);
+            lastSentText = currentFullText;
+            yield { delta: newDelta };
+          }
         }
       }
-    }
 
-    yield { done: true };
+      yield { done: true };
+    } finally {
+      try {
+        await reader.cancel();
+      } catch {}
+    }
   }
 
   /**
@@ -355,7 +546,18 @@ export class ChatGPTWebProvider {
   private classifyConversationFailure(status: number, bodyText: string, modelSlug: string): ProviderError {
     const excerpt = truncateExcerpt(bodyText);
 
-    if (status === 401 || status === 403) {
+    if (status === 401) {
+      return sessionExpiredError();
+    }
+    if (status === 403) {
+      const lower = bodyText.toLowerCase();
+      if (lower.includes('unusual activity') || lower.includes('cf-mitigated') || lower.includes('turnstile') || lower.includes('challenge') || lower.includes('blocked')) {
+        return new ProviderError(
+          `ChatGPT Web blocked this automated connection with OpenAI Cloudflare protection ("${excerpt || 'Unusual activity detected from your device'}"). OpenAI restricts web cookie automation. We recommend using a direct API key (Google Gemini, Groq, Anthropic, OpenAI, or OpenRouter) in Settings > Providers.`,
+          'upstream',
+          { retryable: false, provider: PROVIDER_NAME }
+        );
+      }
       return sessionExpiredError();
     }
     if (status === 429) {
@@ -404,9 +606,70 @@ export class ChatGPTWebProvider {
   }
 
   /**
+   * Resolves a ChatGPT image asset pointer to a downloadable URL.
+   *
+   * Endpoint stability note: these are UNDOCUMENTED private endpoints behind the
+   * web app. Newer sessions emit `sediment://file_<id>` pointers instead of plain
+   * https URLs; those must be rewritten to `/backend-api/files/<id>/download`,
+   * which itself answers with a JSON envelope containing a signed `download_url`
+   * rather than the raw bytes. Any of these shapes can change without notice —
+   * every failure path returns null so callers fall back to other providers.
+   */
+  private resolveImagePointer(pointer: unknown): string | null {
+    if (typeof pointer !== 'string' || !pointer) return null;
+    if (/^https?:\/\//i.test(pointer)) return pointer;
+    const sediment = pointer.match(/^sediment:\/\/(file_[A-Za-z0-9_-]+)/i);
+    if (sediment) return `https://chatgpt.com/backend-api/files/${sediment[1]}/download`;
+    const fileService = pointer.match(/^file-service:\/\/(file_[A-Za-z0-9_-]+)/i);
+    if (fileService) return `https://chatgpt.com/backend-api/files/${fileService[1]}/download`;
+    return null;
+  }
+
+  /**
+   * Downloads generated-image bytes with the session credentials attached.
+   * The files-download endpoint may answer directly with bytes OR with a JSON
+   * envelope carrying a signed download_url — both shapes are handled here.
+   * Raw cookie values are never logged anywhere in this flow.
+   */
+  private async downloadGeneratedImage(
+    url: string,
+    accessToken: string,
+    cookieString: string,
+    signal: AbortSignal,
+  ): Promise<Buffer | null> {
+    for (let hop = 0; hop < 2; hop++) {
+      const res = await fetch(url, {
+        headers: {
+          // The files endpoint requires BOTH the bearer token and the session cookie.
+          'Authorization': `Bearer ${accessToken}`,
+          'Cookie': cookieString,
+          'User-Agent': BROWSER_UA,
+        },
+        signal,
+      });
+      if (!res.ok) return null;
+
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json().catch(() => null) as any;
+        const nested = typeof data?.download_url === 'string' ? data.download_url : null;
+        if (!nested) return null;
+        url = nested; // one signed-URL hop, then expect binary bytes
+        continue;
+      }
+      const buf = Buffer.from(await res.arrayBuffer());
+      // Sanity floor: a real raster image is never just a few dozen bytes.
+      return buf.length > 1000 ? buf : null;
+    }
+    return null;
+  }
+
+  /**
    * Generates an image through the free ChatGPT web account by asking the assistant
    * to produce one in a conversation, waiting for the resulting image_asset_pointer,
-   * and downloading the bytes. Returns null on ANY failure (never throws).
+   * resolving it through the files-download endpoint when needed, and downloading
+   * the bytes. Returns null on ANY failure (never throws) so MediaEngine falls back
+   * to its next provider.
    */
   public async generateImageViaConversation(params: {
     cookieString: string;
@@ -420,6 +683,7 @@ export class ChatGPTWebProvider {
       if (params.signal.aborted) controller.abort();
       else params.signal.addEventListener('abort', forwardAbort);
     }
+    const cookieString = normalizeCookieBlob(params.cookieString).cookie;
 
     try {
       const tokenResult = await this.acquireToken(params.cookieString);
@@ -434,7 +698,7 @@ export class ChatGPTWebProvider {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${tokenResult.token}`,
-          'Cookie': params.cookieString,
+      'Cookie': cookieString,
           'Content-Type': 'application/json',
           'User-Agent': BROWSER_UA,
           'Accept': 'text/event-stream',
@@ -487,9 +751,9 @@ export class ChatGPTWebProvider {
           if (!Array.isArray(parts)) continue;
           for (const part of parts) {
             if (part && typeof part === 'object' && part.content_type === 'image_asset_pointer') {
-              const pointer = part.asset_pointer;
-              if (typeof pointer === 'string' && pointer.startsWith('http')) {
-                imageUrl = pointer;
+              const resolved = this.resolveImagePointer(part.asset_pointer);
+              if (resolved) {
+                imageUrl = resolved;
                 break;
               }
             }
@@ -500,17 +764,8 @@ export class ChatGPTWebProvider {
 
       if (!imageUrl) return null;
 
-      const dl = await fetch(imageUrl, {
-        headers: {
-          'Cookie': params.cookieString,
-          'User-Agent': BROWSER_UA,
-        },
-        signal: controller.signal,
-      });
-      if (!dl.ok) return null;
-
-      const buf = Buffer.from(await dl.arrayBuffer());
-      return buf.length > 0 ? buf : null;
+      const buf = await this.downloadGeneratedImage(imageUrl, tokenResult.token, params.cookieString, controller.signal);
+      return buf && buf.length > 0 ? buf : null;
     } catch {
       return null;
     } finally {

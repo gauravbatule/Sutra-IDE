@@ -1,30 +1,29 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Key,
-  Server,
   CheckCircle2,
   AlertCircle,
-  Zap,
-  Cpu,
   Plus,
-  Check,
   Loader2,
-  Sliders,
-  Radio,
-  ExternalLink,
   Eye,
   EyeOff,
-  Search,
-  Cookie as CookieIcon,
   Trash2,
+  ShieldCheck,
+  Globe,
+  Terminal,
+  Palette,
+  Brain,
+  SlidersHorizontal,
+  Sparkles,
   Film,
+  Image as ImageIcon,
   Volume2,
-  Info,
-  RefreshCw,
-  Image as ImageIcon
+  Pencil,
+  Check,
 } from 'lucide-react';
 import { useIDEStore } from '../../stores/ideStore.js';
+import { useTheme } from '../../hooks/useTheme.js';
 
 interface ProviderCatalogItem {
   id: string;
@@ -36,10 +35,9 @@ interface ProviderCatalogItem {
   description: string;
   website: string;
   docUrl?: string;
-  cookieHint?: string;
-  cookieFields?: string[];
   placeholder?: string;
   defaultBaseUrl?: string;
+  models?: string[];
   supportsTools?: boolean;
   supportsVision?: boolean;
   isConfigured?: boolean;
@@ -52,312 +50,314 @@ interface ProviderCatalogItem {
   status?: string;
 }
 
-/** Connected-model priority list with drag reordering (persisted to localStorage). */
-const RoutingPriorityList: React.FC = () => {
-  const availableModels = useIDEStore((s) => s.availableModels);
-  const [connected, setConnected] = useState<Record<string, boolean> | null>(null);
-  const [priorityIds, setPriorityIds] = useState<string[]>(() => {
-    try {
-      const raw = localStorage.getItem('sutra-model-priority');
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed.filter((v: unknown) => typeof v === 'string') : [];
-    } catch {
-      return [];
-    }
+interface CustomModelEntry {
+  id: string;
+  name: string;
+  provider: string;
+  baseUrl?: string;
+  apiKey?: string;
+  contextWindow?: number;
+  category?: string;
+  supportsVision?: boolean;
+  supportsTools?: boolean;
+  createdAt?: number;
+}
+
+type SettingsCategory =
+  | 'general'
+  | 'application'
+  | 'appearance'
+  | 'models'
+  | 'media'
+  | 'customizations'
+  | 'browser';
+
+interface CategoryConfig {
+  id: SettingsCategory;
+  label: string;
+  subtitle: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+const CATEGORIES: CategoryConfig[] = [
+  {
+    id: 'general',
+    label: 'General',
+    subtitle: 'Configure agent execution, queued message delivery, and permissions.',
+    icon: SlidersHorizontal,
+  },
+  {
+    id: 'application',
+    label: 'Application',
+    subtitle: 'Manage workspace directories, terminal shell defaults, and audio preferences.',
+    icon: Terminal,
+  },
+  {
+    id: 'appearance',
+    label: 'Appearance',
+    subtitle: 'Customize editor theme, typography, and watermark branding.',
+    icon: Palette,
+  },
+  {
+    id: 'models',
+    label: 'Models',
+    subtitle: 'Configure cloud provider API keys and custom OpenAI-compatible models.',
+    icon: Key,
+  },
+  {
+    id: 'media',
+    label: 'Media Studio',
+    subtitle: 'Configure image/video providers, aspect ratios, generation styles, and audio synthesis.',
+    icon: Film,
+  },
+  {
+    id: 'customizations',
+    label: 'Customizations',
+    subtitle: 'Configure system prompt rules, MCP tool integrations, and memory sync.',
+    icon: Sparkles,
+  },
+  {
+    id: 'browser',
+    label: 'Browser',
+    subtitle: 'Manage live web preview simulation, viewports, and visual element inspection.',
+    icon: Globe,
+  },
+];
+
+interface SettingsModalProps {
+  isOpen?: boolean;
+  onClose: () => void;
+}
+
+export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+  const isSettingsOpen = useIDEStore((s) => s.isSettingsOpen);
+  const setSettingsOpen = useIDEStore((s) => s.setSettingsOpen);
+  const currentWorkspacePath = useIDEStore((s) => s.currentWorkspacePath);
+  const currentWorkspaceName = useIDEStore((s) => s.currentWorkspaceName);
+  const setMemoryModalOpen = useIDEStore((s) => s.setMemoryModalOpen);
+  const permissionLevel = useIDEStore((s) => s.permissionLevel);
+  const setPermissionLevel = useIDEStore((s) => s.setPermissionLevel);
+  const { theme, toggleTheme } = useTheme();
+
+  const shouldShow = isOpen !== undefined ? isOpen : isSettingsOpen;
+
+  const [activeTab, setActiveTab] = useState<SettingsCategory>('general');
+  const [catalog, setCatalog] = useState<ProviderCatalogItem[]>([]);
+  const [customModels, setCustomModels] = useState<CustomModelEntry[]>([]);
+  const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // General Settings State
+  const [queuedMessages, setQueuedMessages] = useState<'queue' | 'immediate'>(() => {
+    return (localStorage.getItem('sutra-queued-messages') as 'queue' | 'immediate') || 'immediate';
   });
-  const dragIndex = useRef<number | null>(null);
+  const [securityPreset, setSecurityPreset] = useState<'turbo' | 'balanced' | 'strict'>(() => {
+    return (localStorage.getItem('sutra-security-preset') as any) || 'turbo';
+  });
+  const [artifactReviewPolicy, setArtifactReviewPolicy] = useState<'always_proceed' | 'ask_user' | 'auto_safe'>(() => {
+    return (localStorage.getItem('sutra-artifact-review-policy') as any) || 'always_proceed';
+  });
+  const [taskTerminationSignal, setTaskTerminationSignal] = useState<boolean>(() => {
+    return localStorage.getItem('sutra-termination-signal') !== '0';
+  });
+  const [inlineDiffsEnabled, setInlineDiffsEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('sutra-inline-diffs') !== '0';
+  });
+
+  // Application Settings State
+  const [terminalShell, setTerminalShell] = useState<string>(() => {
+    return localStorage.getItem('sutra-terminal-shell') || 'powershell';
+  });
+  const musicVolume = useIDEStore((s) => s.musicVolume);
+  const setMusicVolume = useIDEStore((s) => s.setMusicVolume);
+  const isMusicEnabled = useIDEStore((s) => s.isMusicEnabled);
+  const setMusicEnabled = useIDEStore((s) => s.setMusicEnabled);
+
+  // Appearance State
+  const [watermarkStyle, setWatermarkStyle] = useState<string>(() => {
+    return localStorage.getItem('sutra-watermark-style') || 'embossed';
+  });
+  const [editorFont, setEditorFont] = useState<string>(() => {
+    return localStorage.getItem('sutra-editor-font') || 'JetBrains Mono';
+  });
+
+  // Browser State
+  const previewViewport = useIDEStore((s) => s.previewViewport);
+  const setPreviewViewport = useIDEStore((s) => s.setPreviewViewport);
+  const [elementInspectorEnabled, setElementInspectorEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('sutra-element-inspector') !== '0';
+  });
+  const [petEnabled, setPetEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('sutra-pet-visible') !== 'false';
+  });
+
+  // Media Studio State
+  const [imageProvider, setImageProvider] = useState<string>('auto');
+  const [imageAspectRatio, setImageAspectRatio] = useState<string>('1:1');
+  const [imageStyle, setImageStyle] = useState<string>('photo');
+  const [videoProvider, setVideoProvider] = useState<string>('auto');
+  const [audioVoice, setAudioVoice] = useState<string>('alloy');
+  const [audioSfxEngine, setAudioSfxEngine] = useState<string>('procedural');
+  const [isSavingMedia, setIsSavingMedia] = useState<boolean>(false);
 
   useEffect(() => {
-    fetch('/api/providers/catalog')
-      .then((r) => r.json())
-      .then((d) => {
-        if (Array.isArray(d.providers)) {
-          const map: Record<string, boolean> = {};
-          for (const p of d.providers) map[p.id] = Boolean(p.isConfigured);
-          setConnected(map);
+    const cached = localStorage.getItem('sutra-media-settings');
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        if (parsed.imageProvider) setImageProvider(parsed.imageProvider);
+        if (parsed.imageAspectRatio) setImageAspectRatio(parsed.imageAspectRatio);
+        if (parsed.imageStyle) setImageStyle(parsed.imageStyle);
+        if (parsed.videoProvider) setVideoProvider(parsed.videoProvider);
+        if (parsed.audioVoice) setAudioVoice(parsed.audioVoice);
+        if (parsed.audioSfxEngine) setAudioSfxEngine(parsed.audioSfxEngine);
+      } catch {}
+    }
+    fetch('/api/media/settings')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data) {
+          if (data.imageProvider) setImageProvider(data.imageProvider);
+          if (data.imageAspectRatio) setImageAspectRatio(data.imageAspectRatio);
+          if (data.imageStyle) setImageStyle(data.imageStyle);
+          if (data.videoProvider) setVideoProvider(data.videoProvider);
+          if (data.audioVoice) setAudioVoice(data.audioVoice);
+          if (data.audioSfxEngine) setAudioSfxEngine(data.audioSfxEngine);
+          localStorage.setItem('sutra-media-settings', JSON.stringify(data));
         }
       })
       .catch(() => undefined);
   }, []);
 
-  const candidates = useMemo(() => {
-    const seen = new Set<string>();
-    const out: Array<{ key: string; id: string; name: string; provider: string }> = [];
-    for (const m of availableModels) {
-      if (m.id === 'auto' || m.provider === 'sutra') continue;
-      const key = `${m.provider}:${m.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ key, id: m.id, name: m.name, provider: m.provider });
-    }
-    // Priority-ordered first, then the rest in catalog order
-    const rank = new Map(priorityIds.map((id, i) => [id, i]));
-    out.sort((a, b) => (rank.get(a.key) ?? 9999) - (rank.get(b.key) ?? 9999));
-    const connectedOnly = out.filter((m) => connected === null || connected[m.provider]);
-    return connectedOnly;
-  }, [availableModels, priorityIds, connected]);
+  const updateMediaSetting = async (key: string, value: string) => {
+    const nextSettings = {
+      imageProvider: key === 'imageProvider' ? value : imageProvider,
+      imageAspectRatio: key === 'imageAspectRatio' ? value : imageAspectRatio,
+      imageStyle: key === 'imageStyle' ? value : imageStyle,
+      videoProvider: key === 'videoProvider' ? value : videoProvider,
+      audioVoice: key === 'audioVoice' ? value : audioVoice,
+      audioSfxEngine: key === 'audioSfxEngine' ? value : audioSfxEngine,
+    };
+    if (key === 'imageProvider') setImageProvider(value);
+    if (key === 'imageAspectRatio') setImageAspectRatio(value);
+    if (key === 'imageStyle') setImageStyle(value);
+    if (key === 'videoProvider') setVideoProvider(value);
+    if (key === 'audioVoice') setAudioVoice(value);
+    if (key === 'audioSfxEngine') setAudioSfxEngine(value);
 
-  const persist = (next: string[]) => {
-    setPriorityIds(next);
+    localStorage.setItem('sutra-media-settings', JSON.stringify(nextSettings));
+    setIsSavingMedia(true);
     try {
-      localStorage.setItem('sutra-model-priority', JSON.stringify(next));
+      await fetch('/api/media/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(nextSettings),
+      });
+      setStatusMessage({ text: 'Media settings updated', type: 'success' });
+      setTimeout(() => setStatusMessage(null), 2000);
     } catch {
-      // In-memory only when storage is unavailable
+      setStatusMessage({ text: 'Saved locally', type: 'success' });
+      setTimeout(() => setStatusMessage(null), 2000);
+    } finally {
+      setIsSavingMedia(false);
     }
   };
 
-  const move = (from: number, to: number) => {
-    if (to < 0 || to >= candidates.length) return;
-    const ids = candidates.map((c) => c.key);
-    const ordered = [...ids];
-    const [moved] = ordered.splice(from, 1);
-    ordered.splice(to, 0, moved);
-    persist(ordered);
+  // Custom Rules State
+  const [customRules, setCustomRules] = useState<string>(() => {
+    return localStorage.getItem('sutra-custom-rules') || '';
+  });
+
+  // User Profile State (configurable, defaults to Guest Architect)
+  const [profileName, setProfileName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('sutra_profile_name') || 'Guest Architect';
+    } catch {
+      return 'Guest Architect';
+    }
+  });
+  const [profileHandle, setProfileHandle] = useState<string>(() => {
+    try {
+      return localStorage.getItem('sutra_profile_email') || 'creator@sutra.studio';
+    } catch {
+      return 'creator@sutra.studio';
+    }
+  });
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editName, setEditName] = useState(profileName);
+  const [editHandle, setEditHandle] = useState(profileHandle);
+
+  const handleSaveProfile = () => {
+    const cleanName = editName.trim() || 'Guest Architect';
+    const cleanHandle = editHandle.trim() || 'creator@sutra.studio';
+    setProfileName(cleanName);
+    setProfileHandle(cleanHandle);
+    try {
+      localStorage.setItem('sutra_profile_name', cleanName);
+      localStorage.setItem('sutra_profile_email', cleanHandle);
+    } catch {}
+    setIsEditingProfile(false);
   };
 
-  if (candidates.length === 0) {
-    return <p className="text-[11px] text-obsidian-inkMuted">Connect a provider first — your models will appear here for prioritization.</p>;
-  }
-
-  return (
-    <div className="space-y-1">
-      <p className="text-[11px] text-obsidian-inkMuted">
-        Drag to set the order the auto chain tries your models. Top = tried first.
-      </p>
-      {candidates.map((model, index) => (
-        <div
-          key={model.key}
-          draggable
-          onDragStart={() => {
-            dragIndex.current = index;
-          }}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={() => {
-            if (dragIndex.current !== null) move(dragIndex.current, index);
-            dragIndex.current = null;
-          }}
-          className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-obsidian-surface2 border border-obsidian-hairline cursor-grab active:cursor-grabbing select-none"
-        >
-          <span className="text-[10px] font-mono text-obsidian-inkMuted w-5 text-center">{index + 1}</span>
-          <span className="flex-1 min-w-0 truncate text-xs text-obsidian-inkPrimary">{model.name}</span>
-          <span className="text-[9px] font-mono uppercase tracking-wider text-obsidian-inkMuted">{model.provider}</span>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-/** Update channel: compares the running version against <origin>/version.json. */
-const UpdateCheckRow: React.FC = () => {
-  const [state, setState] = useState<{ current: string; latest: string | null; updateAvailable: boolean } | null>(null);
-  const [checking, setChecking] = useState(false);
-
-  const check = () => {
-    setChecking(true);
-    fetch('/api/update/check')
-      .then((r) => r.json())
-      .then((d) => setState(d))
-      .catch(() => setState(null))
-      .finally(() => setChecking(false));
-  };
-
-  return (
-    <div className="flex items-center justify-between p-3 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg">
-      <div>
-        <div className="font-semibold text-obsidian-inkPrimary text-xs">Updates</div>
-        <div className="text-[11px] text-obsidian-inkMuted">
-          {state
-            ? state.updateAvailable
-              ? `Update available — download it from the project website.`
-              : 'You are on the latest version.'
-            : 'Check against the published version manifest.'}
-        </div>
-        <a
-          href="https://buymeacoffee.com/gauravbatule"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-1 inline-flex items-center gap-1 text-[11px] text-amber-300/90 hover:text-amber-200 underline underline-offset-2 decoration-amber-400/30 transition-colors"
-        >
-          Support the project — Buy me a coffee
-        </a>
-      </div>
-      <button
-        type="button"
-        onClick={check}
-        disabled={checking}
-        className="px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-[11px] text-obsidian-inkSecondary hover:text-obsidian-inkPrimary transition-colors cursor-pointer disabled:opacity-50"
-      >
-        {checking ? 'Checking…' : 'Check for updates'}
-      </button>
-    </div>
-  );
-};
-
-export const SettingsModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
-  const { isSettingsOpen, setSettingsOpen, setAvailableModels } = useIDEStore();
-  const [activeTab, setActiveTab] = useState<'providers' | 'routing' | 'local' | 'custom' | 'media' | 'mcp' | 'about'>('providers');
-  const [providers, setProviders] = useState<ProviderCatalogItem[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [syncing, setSyncing] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-
-  // Per-provider form state
-  const [activeAuthMode, setActiveAuthMode] = useState<Record<string, 'api-key' | 'cookie' | 'oauth'>>({});
+  // Provider Keys State
   const [providerKeys, setProviderKeys] = useState<Record<string, string>>({});
-  const [providerCookies, setProviderCookies] = useState<Record<string, string>>({});
-  const [providerBaseUrls, setProviderBaseUrls] = useState<Record<string, string>>({});
   const [revealedKeys, setRevealedKeys] = useState<Record<string, boolean>>({});
-  const [testingProvider, setTestingProvider] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; latencyMs?: number; error?: string }>>({});
+  const [syncingProvider, setSyncingProvider] = useState<string | null>(null);
 
-  // Local Scanner State
-  const [isScanningLocal, setIsScanningLocal] = useState(false);
-  const [detectedLocalModels, setDetectedLocalModels] = useState<{ ollama: string[]; lmstudio: string[] }>({
-    ollama: [],
-    lmstudio: [],
-  });
+  // Add Custom Model Form State
+  const [newCustomName, setNewCustomName] = useState('');
+  const [newCustomId, setNewCustomId] = useState('');
+  const [newCustomBaseUrl, setNewCustomBaseUrl] = useState('');
+  const [newCustomApiKey, setNewCustomApiKey] = useState('');
+  const [newCustomContext, setNewCustomContext] = useState('128000');
+  const [isAddingCustom, setIsAddingCustom] = useState(false);
+  const [customFormError, setCustomFormError] = useState<string | null>(null);
 
-  // Custom Modality Models Form State
-  const [customModelId, setCustomModelId] = useState('');
-  const [customModelName, setCustomModelName] = useState('');
-  const [customModelCategory, setCustomModelCategory] = useState<'image' | 'video' | 'audio' | 'llm'>('image');
-  const [customModelProvider, setCustomModelProvider] = useState('replicate');
-  const [customModelDescription, setCustomModelDescription] = useState('');
-  const [customBaseUrl, setCustomBaseUrl] = useState('');
-  const [customApiKey, setCustomApiKey] = useState('');
-  const [customSupportsVision] = useState(false);
-  const [customSupportsTools] = useState(true);
-  const [addingCustom, setAddingCustom] = useState(false);
-  const [customModelError, setCustomModelError] = useState('');
-  const [savedCustomModels, setSavedCustomModels] = useState<any[]>([]);
-
-  // About tab: app version + update check (plain text result, never auto-downloads)
-  const [appVersion, setAppVersion] = useState('');
-  const [updateState, setUpdateState] = useState<'idle' | 'checking' | 'up-to-date' | 'available' | 'error'>('idle');
-  const [updateMessage, setUpdateMessage] = useState('');
-
-  // Custom MCP Form State
-  const [mcpServers, setMcpServers] = useState<any[]>([]);
-  const [newMcpName, setNewMcpName] = useState('');
-  const [newMcpTransport, setNewMcpTransport] = useState<'stdio' | 'sse' | 'http'>('stdio');
-  const [newMcpCommand, setNewMcpCommand] = useState('');
-  const [newMcpArgs, setNewMcpArgs] = useState('');
-  const [newMcpUrl, setNewMcpUrl] = useState('');
-  const [newMcpDescription, setNewMcpDescription] = useState('');
-  const [addingMcp, setAddingMcp] = useState(false);
-
-  // Fallback & Routing Config (persisted locally; server reads its own defaults)
-  interface RoutingConfig {
-    retryAttempts: number;
-    autoCompactEnabled: boolean;
-    autoCompactThreshold: number;
-    tpmBudget: number;
-  }
-  const [routingConfig, setRoutingConfig] = useState<RoutingConfig>(() => {
-    try {
-      const saved = localStorage.getItem('sutra-routing-config');
-      if (saved) {
-        return { retryAttempts: 8, autoCompactEnabled: true, autoCompactThreshold: 80, tpmBudget: 4800, ...JSON.parse(saved) };
-      }
-    } catch {
-      // Fall through to defaults
-    }
-    return { retryAttempts: 8, autoCompactEnabled: true, autoCompactThreshold: 80, tpmBudget: 4800 };
-  });
-
-  const shouldShow = isOpen || isSettingsOpen;
-
-  const updateRoutingConfig = (patch: Partial<typeof routingConfig>) => {
-    setRoutingConfig((prev) => {
-      const next = { ...prev, ...patch };
-      try {
-        localStorage.setItem('sutra-routing-config', JSON.stringify(next));
-      } catch {
-        // Storage may be unavailable; in-session state still applies
-      }
-      return next;
-    });
-  };
-
-  const fetchCustomModelsAndMcp = async () => {
-    try {
-      const [modRes, mcpRes] = await Promise.all([
-        fetch('/api/custom-models').then((r) => r.json()).catch(() => ({ models: [] })),
-        fetch('/api/mcp/servers').then((r) => r.json()).catch(() => ({ servers: [] })),
-      ]);
-      if (modRes.models) setSavedCustomModels(modRes.models);
-      if (mcpRes.servers) setMcpServers(mcpRes.servers);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
+  // Fetch providers catalog & custom models
   const fetchCatalog = async () => {
     try {
-      const res = await fetch('/api/providers/catalog');
-      const data = await res.json();
-      if (data.providers) {
-        setProviders(data.providers);
-
-        // Secrets are never prefilled — the server only returns masked previews.
-        // Only the base URL (not a secret) hydrates the form.
-        const newUrls: Record<string, string> = {};
-        const newAuthModes: Record<string, 'api-key' | 'cookie' | 'oauth'> = {};
-
-        for (const p of data.providers) {
-          if (p.savedBaseUrl) newUrls[p.id] = p.savedBaseUrl;
-          newAuthModes[p.id] = (p.savedAuthType as any) || (p.authTypes.includes('cookie') && !p.authTypes.includes('api-key') ? 'cookie' : 'api-key');
+      const [catRes, custRes] = await Promise.all([
+        fetch('/api/providers/catalog'),
+        fetch('/api/custom-models'),
+      ]);
+      if (catRes.ok) {
+        const catData = await catRes.json();
+        if (Array.isArray(catData.providers)) {
+          // Filter out antigravity and local providers per user requirement
+          const filtered = catData.providers.filter(
+            (p: ProviderCatalogItem) => p.id !== 'antigravity' && p.category !== 'local'
+          );
+          setCatalog(filtered);
         }
-
-        setProviderBaseUrls((prev) => ({ ...newUrls, ...prev }));
-        setActiveAuthMode((prev) => ({ ...newAuthModes, ...prev }));
       }
-    } catch (e) {
-      console.error('Failed to load provider catalog:', e);
-    }
-  };
-
-  const fetchAppVersion = async () => {
-    try {
-      const res = await fetch('/api/version');
-      const data = await res.json();
-      if (data.version) setAppVersion(String(data.version));
+      if (custRes.ok) {
+        const custData = await custRes.json();
+        if (Array.isArray(custData.models)) {
+          setCustomModels(custData.models);
+        }
+      }
     } catch {
-      // Version display stays blank on failure — never blocks the modal
-    }
-  };
-
-  const handleCheckForUpdates = async () => {
-    setUpdateState('checking');
-    setUpdateMessage('');
-    try {
-      const res = await fetch('/api/update/check');
-      if (!res.ok) throw new Error(`Update check failed (${res.status})`);
-      const data = await res.json();
-      const latest = data.latest ?? data.latestVersion ?? data.currentVersion ?? data.version;
-      if (data.updateAvailable) {
-        setUpdateState('available');
-        setUpdateMessage(`Update available: ${latest || 'newer version'} — download from the website.`);
-      } else {
-        setUpdateState('up-to-date');
-        setUpdateMessage('Up to date.');
-      }
-    } catch (err: any) {
-      setUpdateState('error');
-      setUpdateMessage(err?.message ? `Could not check for updates: ${err.message}` : 'Could not check for updates.');
+      // Best-effort
     }
   };
 
   useEffect(() => {
     if (shouldShow) {
-      // Always land on Providers & Keys when the modal opens (e.g. from the setup gate)
-      setActiveTab('providers');
-      fetchCatalog();
-      fetchCustomModelsAndMcp();
-      fetchAppVersion();
+      void fetchCatalog();
     }
   }, [shouldShow]);
+
+  // Handle escape to close
+  useEffect(() => {
+    if (!shouldShow) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSettingsOpen(false);
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [shouldShow, onClose, setSettingsOpen]);
 
   if (!shouldShow) return null;
 
@@ -366,1165 +366,1047 @@ export const SettingsModal: React.FC<{ isOpen: boolean; onClose: () => void }> =
     onClose();
   };
 
-  const handleSaveProvider = async (providerId: string) => {
-    setSyncing(true);
-    const authType = activeAuthMode[providerId] || 'api-key';
-    // Only send fields the user actually entered — empty/absent fields preserve
-    // what is already stored server-side (the form never sees raw secrets).
+  const handleSaveProviderKey = async (providerId: string) => {
     const apiKey = (providerKeys[providerId] || '').trim();
-    const cookieData = (providerCookies[providerId] || '').trim();
-    const baseUrl = (providerBaseUrls[providerId] || '').trim();
-
+    if (!apiKey) return;
+    setSyncingProvider(providerId);
     try {
       const res = await fetch('/api/providers/save-credential', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           providerId,
-          authType,
-          ...(apiKey ? { apiKey } : {}),
-          ...(cookieData ? { cookieData } : {}),
-          ...(baseUrl ? { baseUrl } : {}),
+          authType: 'api-key',
+          apiKey,
         }),
       });
       const data = await res.json();
       if (data.success) {
-        // Drop typed secrets from local state immediately — previews come from the catalog
         setProviderKeys((prev) => {
           const next = { ...prev };
           delete next[providerId];
           return next;
         });
-        setProviderCookies((prev) => {
-          const next = { ...prev };
-          delete next[providerId];
-          return next;
-        });
-        setStatusMessage({ text: `Saved credentials for ${providerId}`, type: 'success' });
-        fetchCatalog();
+        setStatusMessage({ text: `Saved key for ${providerId}`, type: 'success' });
+        void fetchCatalog();
       } else {
         throw new Error(data.error || 'Save failed');
       }
     } catch (e: any) {
-      setStatusMessage({ text: `Error: ${e.message}`, type: 'error' });
+      setStatusMessage({ text: e.message || 'Error saving key', type: 'error' });
     } finally {
-      setSyncing(false);
-      setTimeout(() => setStatusMessage(null), 3000);
+      setSyncingProvider(null);
+      setTimeout(() => setStatusMessage(null), 3500);
     }
   };
 
-  const handleTestConnection = async (providerId: string) => {
-    setTestingProvider(providerId);
+  const handleAddCustomModel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCustomName.trim() || !newCustomId.trim()) {
+      setCustomFormError('Model display name and Model ID are required.');
+      return;
+    }
+    setCustomFormError(null);
+    setIsAddingCustom(true);
     try {
-      // First save current inputs
-      await handleSaveProvider(providerId);
-
-      const res = await fetch('/api/providers/test', {
+      const res = await fetch('/api/custom-models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ providerId }),
+        body: JSON.stringify({
+          name: newCustomName.trim(),
+          id: newCustomId.trim(),
+          baseUrl: newCustomBaseUrl.trim() || undefined,
+          apiKey: newCustomApiKey.trim() || undefined,
+          contextWindow: parseInt(newCustomContext, 10) || 128000,
+          category: 'llm',
+          supportsTools: true,
+          supportsVision: false,
+        }),
       });
       const data = await res.json();
-      setTestResults((prev) => ({
-        ...prev,
-        [providerId]: { ok: data.ok, latencyMs: data.latencyMs, error: data.error },
-      }));
-    } catch (e: any) {
-      setTestResults((prev) => ({
-        ...prev,
-        [providerId]: { ok: false, error: e.message },
-      }));
-    } finally {
-      setTestingProvider(null);
-    }
-  };
-
-  const handleScanLocal = async () => {
-    setIsScanningLocal(true);
-    try {
-      const res = await fetch('/api/models/scan-local', { method: 'POST' });
-      const data = await res.json();
-      if (data.success && data.results) {
-        setDetectedLocalModels({
-          ollama: data.results.ollama?.models || [],
-          lmstudio: data.results.lmstudio?.models || [],
-        });
-        if (data.allModels) setAvailableModels(data.allModels);
-        const total = (data.results.ollama?.models?.length || 0) + (data.results.lmstudio?.models?.length || 0);
-        setStatusMessage({
-          text: `Local scan completed: Found ${total} active models.`,
-          type: 'success',
-        });
+      if (data.success) {
+        setNewCustomName('');
+        setNewCustomId('');
+        setNewCustomBaseUrl('');
+        setNewCustomApiKey('');
+        setNewCustomContext('128000');
+        setStatusMessage({ text: `Added custom model ${newCustomName}`, type: 'success' });
+        void fetchCatalog();
+      } else {
+        throw new Error(data.error || 'Could not register custom model');
       }
     } catch (err: any) {
-      setStatusMessage({ text: `Scan error: ${err.message}`, type: 'error' });
+      setCustomFormError(err.message || 'Error adding custom model');
     } finally {
-      setIsScanningLocal(false);
-      setTimeout(() => setStatusMessage(null), 4000);
+      setIsAddingCustom(false);
+      setTimeout(() => setStatusMessage(null), 3500);
     }
   };
 
-  const categories = [
-    { id: 'all', label: `All Providers (${providers.length || '—'})` },
-    { id: 'frontier', label: 'Frontier Labs' },
-    { id: 'web-cookie', label: 'Web Session Cookies' },
-    { id: 'inference-hosts', label: 'Inference Hosts' },
-    { id: 'regional', label: 'Regional AI' },
-    { id: 'enterprise-cloud', label: 'Enterprise Cloud' },
-    { id: 'media-audio', label: 'Media & Voice' },
-    { id: 'local-free', label: 'Local & Free' },
-  ];
+  const handleDeleteCustomModel = async (id: string) => {
+    try {
+      const res = await fetch(`/api/custom-models/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setStatusMessage({ text: 'Deleted custom model', type: 'success' });
+        void fetchCatalog();
+      }
+    } catch {
+      // Best-effort
+    }
+  };
 
-  const filteredProviders = providers.filter((p) => {
-    const matchesCat = selectedCategory === 'all' || p.category === selectedCategory;
-    const matchesSearch = 
-      !searchQuery.trim() || 
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      p.id.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      p.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.badge.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCat && matchesSearch;
-  });
+  const currentCategory = CATEGORIES.find((c) => c.id === activeTab) || CATEGORIES[0];
+  const workspaceName = currentWorkspaceName || (currentWorkspacePath ? currentWorkspacePath.split(/[/\\]/).filter(Boolean).pop() : '') || 'omnicraft-ide';
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 animate-in fade-in select-none">
-      <div className="w-full max-w-6xl h-[92vh] bg-obsidian-surface1 border border-obsidian-hairline rounded-2xl flex flex-col overflow-hidden shadow-2xl">
-        {/* Top Header */}
-        <div className="h-14 bg-obsidian-surface1 border-b border-obsidian-hairline flex items-center justify-between px-6 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-obsidian-surface2 border border-obsidian-hairline flex items-center justify-center text-obsidian-inkPrimary">
-              <Sliders className="w-4 h-4" />
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-modal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/75 backdrop-blur-md animate-in fade-in duration-150 font-sans"
+    >
+      <div className="w-full max-w-5xl h-[88vh] max-h-[820px] bg-obsidian-surface1 border border-obsidian-border rounded-2xl shadow-2xl flex overflow-hidden">
+        {/* LEFT NAVIGATION SIDEBAR */}
+        <div className="w-60 sm:w-64 border-r border-obsidian-hairline bg-obsidian-surface1/80 flex flex-col justify-between shrink-0 p-3 select-none">
+          <div className="space-y-4">
+            <div className="px-3 pt-1.5 flex items-center justify-between">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-obsidian-inkMuted font-mono">
+                Settings
+              </h3>
             </div>
-            <div>
-              <h2 className="text-sm font-bold text-obsidian-inkPrimary flex items-center gap-2">
-                Providers & Authentication
-                <span className="text-[10px] font-mono text-obsidian-inkMuted bg-obsidian-surface2 border border-obsidian-hairline px-2 py-0.5 rounded-full font-normal">
-                  {providers.length ? `${providers.length} Providers` : 'Providers'}
-                </span>
-              </h2>
-              <p className="text-[11px] text-obsidian-inkMuted">
-                Configure API keys, web session cookies, OAuth, and local endpoints.
-              </p>
-            </div>
-          </div>
 
-          <div className="flex items-center gap-3">
-            {statusMessage && (
-              <span className={`text-xs font-mono px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${
-                statusMessage.type === 'success'
-                  ? 'bg-obsidian-surface2 text-obsidian-inkSecondary border-obsidian-hairline'
-                  : 'bg-red-950/40 text-red-300 border-red-800/60'
-              }`}>
-                {statusMessage.type === 'success' ? <CheckCircle2 className="w-3.5 h-3.5 text-obsidian-inkSecondary" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                {statusMessage.text}
+            {/* Navigation Tabs */}
+            <nav className="space-y-1">
+              {CATEGORIES.map((cat) => {
+                const isActive = activeTab === cat.id;
+                const Icon = cat.icon;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setActiveTab(cat.id)}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-obsidian-surface3 text-obsidian-inkPrimary font-semibold shadow-xs border border-obsidian-border'
+                        : 'text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 text-obsidian-inkMuted shrink-0" />
+                    <span>{cat.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Projects section */}
+            <div className="pt-3 px-3 space-y-1 border-t border-obsidian-hairline">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-obsidian-inkMuted font-mono block mb-1">
+                Projects
               </span>
-            )}
-            <button
-              onClick={handleClose}
-              className="p-1.5 rounded-lg hover:bg-obsidian-surface2 text-obsidian-inkMuted hover:text-obsidian-inkPrimary transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
+              <div className="text-xs font-mono text-obsidian-inkSecondary py-1 truncate flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span className="truncate">{workspaceName}</span>
+              </div>
+            </div>
           </div>
-        </div>
 
-        {/* Tab Navigation */}
-        <div className="flex items-center gap-1 px-6 pt-2 border-b border-obsidian-hairline bg-obsidian-surface2/40 text-xs font-medium shrink-0 overflow-x-auto no-scrollbar">
-          <button
-            onClick={() => setActiveTab('providers')}
-            className={`pb-2.5 px-3 border-b-2 flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'providers'
-                ? 'border-obsidian-inkPrimary text-obsidian-inkPrimary font-bold'
-                : 'border-transparent text-obsidian-inkSecondary hover:text-obsidian-inkPrimary'
-            }`}
-          >
-            <Key className="w-3.5 h-3.5" />
-            Providers & Keys
-          </button>
-
-          <button
-            onClick={() => setActiveTab('routing')}
-            className={`pb-2.5 px-3 border-b-2 flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'routing'
-                ? 'border-obsidian-inkPrimary text-obsidian-inkPrimary font-bold'
-                : 'border-transparent text-obsidian-inkSecondary hover:text-obsidian-inkPrimary'
-            }`}
-          >
-            <Radio className="w-3.5 h-3.5" />
-            Routing & Failovers
-          </button>
-
-          <button
-            onClick={() => setActiveTab('local')}
-            className={`pb-2.5 px-3 border-b-2 flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'local'
-                ? 'border-obsidian-inkPrimary text-obsidian-inkPrimary font-bold'
-                : 'border-transparent text-obsidian-inkSecondary hover:text-obsidian-inkPrimary'
-            }`}
-          >
-            <Cpu className="w-3.5 h-3.5" />
-            Local Model Discovery
-          </button>
-
-          <button
-            onClick={() => setActiveTab('custom')}
-            className={`pb-2.5 px-3 border-b-2 flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'custom'
-                ? 'border-obsidian-inkPrimary text-obsidian-inkPrimary font-bold'
-                : 'border-transparent text-obsidian-inkSecondary hover:text-obsidian-inkPrimary'
-            }`}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Custom Endpoints
-          </button>
-
-          <button
-            onClick={() => setActiveTab('mcp')}
-            className={`pb-2.5 px-3 border-b-2 flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'mcp'
-                ? 'border-obsidian-inkPrimary text-obsidian-inkPrimary font-bold'
-                : 'border-transparent text-obsidian-inkSecondary hover:text-obsidian-inkPrimary'
-            }`}
-          >
-          <Server className="w-3.5 h-3.5" />
-            MCP Client
-          </button>
-
-          <button
-            onClick={() => setActiveTab('about')}
-            className={`pb-2.5 px-3 border-b-2 flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'about'
-                ? 'border-obsidian-inkPrimary text-obsidian-inkPrimary font-bold'
-                : 'border-transparent text-obsidian-inkSecondary hover:text-obsidian-inkPrimary'
-            }`}
-          >
-            <Info className="w-3.5 h-3.5" />
-            About
-          </button>
-        </div>
-
-        {/* Main Panel Content */}
-        <div className="flex-1 p-6 overflow-y-auto bg-obsidian-canvas text-xs space-y-6">
-          {/* TAB 1: 159+ PROVIDERS WITH COOKIE + API KEY + OAUTH */}
-          {activeTab === 'providers' && (
-            <div className="space-y-4 max-w-5xl mx-auto">
-              {/* Category Filter & Search Bar */}
-              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
-                  {categories.map((cat) => (
-                    <button
-                      key={cat.id}
-                      onClick={() => setSelectedCategory(cat.id)}
-                      className={`px-3 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
-                        selectedCategory === cat.id
-                          ? 'bg-obsidian-inkPrimary text-obsidian-canvas font-bold'
-                          : 'bg-obsidian-surface1 text-obsidian-inkSecondary hover:text-obsidian-inkPrimary border border-obsidian-hairline hover:bg-obsidian-surface2'
-                      }`}
-                    >
-                      {cat.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="relative min-w-[240px]">
-                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-obsidian-inkMuted" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search providers, models..."
-                    className="w-full pl-8 pr-3 py-1.5 bg-obsidian-surface1 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent"
-                  />
+          {/* User Profile Footer */}
+          <div className="pt-3 border-t border-obsidian-hairline space-y-2 px-2">
+            {isEditingProfile ? (
+              <div className="p-2 rounded-lg bg-obsidian-surface2 border border-obsidian-hairline space-y-2 anim-appear">
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Display Name"
+                  className="w-full px-2 py-1 text-xs rounded bg-obsidian-surface1 border border-obsidian-hairline text-obsidian-inkPrimary font-medium focus:border-obsidian-accent outline-none"
+                />
+                <input
+                  type="text"
+                  value={editHandle}
+                  onChange={(e) => setEditHandle(e.target.value)}
+                  placeholder="Handle or Email"
+                  className="w-full px-2 py-1 text-[10px] font-mono rounded bg-obsidian-surface1 border border-obsidian-hairline text-obsidian-inkSecondary focus:border-obsidian-accent outline-none"
+                />
+                <div className="flex items-center justify-end gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditName(profileName);
+                      setEditHandle(profileHandle);
+                      setIsEditingProfile(false);
+                    }}
+                    className="p-1 rounded text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-obsidian-surface3 text-[10px] cursor-pointer"
+                    title="Cancel"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveProfile}
+                    className="p-1 rounded text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 text-[10px] cursor-pointer flex items-center gap-1"
+                    title="Save profile"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
-
-              {/* Provider Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {filteredProviders.map((prov) => {
-                  const currentMode = activeAuthMode[prov.id] || (prov.authTypes.includes('cookie') && !prov.authTypes.includes('api-key') ? 'cookie' : 'api-key');
-                  const currentKey = providerKeys[prov.id] || '';
-                  const currentCookie = providerCookies[prov.id] || '';
-                  const currentUrl = providerBaseUrls[prov.id] || '';
-                  const isRevealed = revealedKeys[prov.id];
-                  const testRes = testResults[prov.id];
-                  const isTesting = testingProvider === prov.id;
-
-                  return (
-                    <div
-                      key={prov.id}
-                      className="p-4 bg-obsidian-surface1 border border-obsidian-hairline rounded-xl flex flex-col justify-between space-y-3 hover:border-obsidian-border transition-colors shadow-sm"
+            ) : (
+              <div className="flex items-center gap-2.5 py-1 group/profile">
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500/20 via-purple-500/20 to-cyan-500/20 border border-obsidian-border text-obsidian-inkPrimary font-semibold text-xs flex items-center justify-center shrink-0 shadow-xs">
+                  {profileName.trim().charAt(0).toUpperCase() || 'G'}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold text-obsidian-inkPrimary truncate flex items-center justify-between">
+                    <span className="truncate">{profileName}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditName(profileName);
+                        setEditHandle(profileHandle);
+                        setIsEditingProfile(true);
+                      }}
+                      className="opacity-0 group-hover/profile:opacity-100 p-0.5 rounded text-obsidian-inkMuted hover:text-obsidian-inkPrimary transition-opacity cursor-pointer"
+                      title="Edit Profile"
                     >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <div className="text-[10px] text-obsidian-inkMuted font-mono truncate">{profileHandle}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* RIGHT CONTENT PANE */}
+        <div className="flex-1 flex flex-col min-w-0 bg-obsidian-surface1 overflow-hidden">
+          {/* Header */}
+          <div className="h-16 px-6 border-b border-obsidian-hairline flex items-center justify-between shrink-0 bg-obsidian-surface1">
+            <div className="space-y-0.5">
+              <h2 id="settings-modal-title" className="text-base font-semibold text-obsidian-inkPrimary font-sans">
+                {currentCategory.label}
+              </h2>
+              <p className="text-xs text-obsidian-inkMuted">{currentCategory.subtitle}</p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {statusMessage && (
+                <span
+                  className={`text-xs font-mono px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${
+                    statusMessage.type === 'success'
+                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                      : 'bg-red-500/15 text-red-300 border-red-500/30'
+                  }`}
+                >
+                  {statusMessage.type === 'success' ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                  )}
+                  {statusMessage.text}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={handleClose}
+                aria-label="Close settings (Esc)"
+                title="Close settings (Esc)"
+                className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-obsidian-surface2 text-obsidian-inkMuted hover:text-obsidian-inkPrimary border border-transparent hover:border-obsidian-hairline transition-all active:scale-95 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* TAB: GENERAL */}
+            {activeTab === 'general' && (
+              <div className="space-y-6 max-w-2xl">
+                {/* Execution Section */}
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-obsidian-inkMuted font-mono">
+                    Execution
+                  </h4>
+                  <div className="p-4 rounded-xl bg-obsidian-surface2 border border-obsidian-hairline space-y-4">
+                    <div className="flex items-center justify-between gap-4">
                       <div>
-                        {/* Header: Title & Badges */}
-                        <div className="flex items-start justify-between mb-1.5">
-                          <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Queued Messages</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">Configure when follow-up messages are sent.</div>
+                      </div>
+                      <div className="flex items-center p-0.5 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQueuedMessages('queue');
+                            localStorage.setItem('sutra-queued-messages', 'queue');
+                          }}
+                          className={`px-3 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                            queuedMessages === 'queue'
+                              ? 'bg-obsidian-inkPrimary text-obsidian-canvas font-semibold shadow-xs'
+                              : 'text-obsidian-inkMuted hover:text-obsidian-inkPrimary'
+                          }`}
+                        >
+                          Queue
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQueuedMessages('immediate');
+                            localStorage.setItem('sutra-queued-messages', 'immediate');
+                          }}
+                          className={`px-3 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                            queuedMessages === 'immediate'
+                              ? 'bg-obsidian-inkPrimary text-obsidian-canvas font-semibold shadow-xs'
+                              : 'text-obsidian-inkMuted hover:text-obsidian-inkPrimary'
+                          }`}
+                        >
+                          Send Immediately
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 pt-2 border-t border-obsidian-hairline/60">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Agent Permissions & Mutation Safety</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">
+                          Strict Mode requires approval before file mutations or command execution. Full Access operates autonomously.
+                        </div>
+                      </div>
+                      <div className="flex items-center p-0.5 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline">
+                        <button
+                          type="button"
+                          onClick={() => setPermissionLevel('strict')}
+                          className={`px-3 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                            permissionLevel === 'strict'
+                              ? 'bg-amber-500 text-white font-semibold shadow-xs'
+                              : 'text-obsidian-inkMuted hover:text-obsidian-inkPrimary'
+                          }`}
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>Strict</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPermissionLevel('full')}
+                          className={`px-3 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                            permissionLevel === 'full'
+                              ? 'bg-emerald-600 text-white font-semibold shadow-xs'
+                              : 'text-obsidian-inkMuted hover:text-obsidian-inkPrimary'
+                          }`}
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>Full Access</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 pt-2 border-t border-obsidian-hairline/60">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Task Termination Contract</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">
+                          Mandates an Executive Delivery Receipt and halts tool calls upon goal completion.
+                        </div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={taskTerminationSignal}
+                        onChange={(e) => {
+                          setTaskTerminationSignal(e.target.checked);
+                          localStorage.setItem('sutra-termination-signal', e.target.checked ? '1' : '0');
+                        }}
+                        className="w-4 h-4 accent-obsidian-inkPrimary cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Agent Settings Section */}
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-obsidian-inkMuted font-mono">
+                    Agent Settings
+                  </h4>
+                  <div className="p-4 rounded-xl bg-obsidian-surface2 border border-obsidian-hairline space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Security Preset</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">
+                          Controls terminal auto execution and file access permissions.
+                        </div>
+                      </div>
+                      <select
+                        value={securityPreset}
+                        onChange={(e) => {
+                          const val = e.target.value as any;
+                          setSecurityPreset(val);
+                          localStorage.setItem('sutra-security-preset', val);
+                        }}
+                        className="h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs font-mono text-obsidian-inkPrimary focus:outline-none cursor-pointer"
+                      >
+                        <option value="turbo">Turbo Mode</option>
+                        <option value="balanced">Balanced Mode</option>
+                        <option value="strict">Strict Confirmation</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Agent Behavior Section */}
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-obsidian-inkMuted font-mono">
+                    Agent Behavior
+                  </h4>
+                  <div className="p-4 rounded-xl bg-obsidian-surface2 border border-obsidian-hairline space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Artifact Review Policy</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">
+                          Specifies behavior when asking for review on generated documents.
+                        </div>
+                      </div>
+                      <select
+                        value={artifactReviewPolicy}
+                        onChange={(e) => {
+                          const val = e.target.value as any;
+                          setArtifactReviewPolicy(val);
+                          localStorage.setItem('sutra-artifact-review-policy', val);
+                        }}
+                        className="h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs font-mono text-obsidian-inkPrimary focus:outline-none cursor-pointer"
+                      >
+                        <option value="always_proceed">Always Proceed</option>
+                        <option value="ask_user">Ask User</option>
+                        <option value="auto_safe">Auto Approve Safe</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 pt-2 border-t border-obsidian-hairline/60">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Inline Diff Synthesis</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">
+                          Enforces surgical search-and-replace edits over destructive file overwrites.
+                        </div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={inlineDiffsEnabled}
+                        onChange={(e) => {
+                          setInlineDiffsEnabled(e.target.checked);
+                          localStorage.setItem('sutra-inline-diffs', e.target.checked ? '1' : '0');
+                        }}
+                        className="w-4 h-4 accent-obsidian-inkPrimary cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB: MODELS */}
+            {activeTab === 'models' && (
+              <div className="space-y-6 max-w-3xl">
+                {/* Custom Models Manager */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-obsidian-inkMuted font-mono">
+                      Custom OpenAI-Compatible Models
+                    </h4>
+                    <span className="text-[10px] text-obsidian-inkMuted font-mono">
+                      Connect any external endpoint, vLLM, RunPod, or Open-Source LLM
+                    </span>
+                  </div>
+
+                  {/* Add Custom Model Form */}
+                  <form onSubmit={handleAddCustomModel} className="p-4 rounded-xl bg-obsidian-surface2 border border-obsidian-hairline space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-mono text-obsidian-inkMuted mb-1">Model Display Name</label>
+                        <input
+                          type="text"
+                          value={newCustomName}
+                          onChange={(e) => setNewCustomName(e.target.value)}
+                          placeholder="e.g. Llama 3.3 70B (Together)"
+                          className="w-full h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs font-mono text-obsidian-inkPrimary focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-mono text-obsidian-inkMuted mb-1">Model ID</label>
+                        <input
+                          type="text"
+                          value={newCustomId}
+                          onChange={(e) => setNewCustomId(e.target.value)}
+                          placeholder="e.g. meta-llama/Llama-3.3-70B-Instruct"
+                          className="w-full h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs font-mono text-obsidian-inkPrimary focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-mono text-obsidian-inkMuted mb-1">Base URL (Endpoint)</label>
+                        <input
+                          type="text"
+                          value={newCustomBaseUrl}
+                          onChange={(e) => setNewCustomBaseUrl(e.target.value)}
+                          placeholder="https://api.together.xyz/v1 or http://localhost:8000/v1"
+                          className="w-full h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs font-mono text-obsidian-inkPrimary focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-mono text-obsidian-inkMuted mb-1">Context Window</label>
+                        <input
+                          type="number"
+                          value={newCustomContext}
+                          onChange={(e) => setNewCustomContext(e.target.value)}
+                          placeholder="128000"
+                          className="w-full h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs font-mono text-obsidian-inkPrimary focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-mono text-obsidian-inkMuted mb-1">API Key (Optional if local)</label>
+                      <input
+                        type="password"
+                        value={newCustomApiKey}
+                        onChange={(e) => setNewCustomApiKey(e.target.value)}
+                        placeholder="sk-..."
+                        className="w-full h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs font-mono text-obsidian-inkPrimary focus:outline-none"
+                      />
+                    </div>
+
+                    {customFormError && (
+                      <div className="text-[11px] text-red-400 font-mono">{customFormError}</div>
+                    )}
+
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="submit"
+                        disabled={isAddingCustom}
+                        className="flex items-center gap-1.5 h-8 px-4 rounded-lg bg-obsidian-inkPrimary text-obsidian-canvas text-xs font-semibold hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Custom Model</span>
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* Configured Custom Models List */}
+                  {customModels.length > 0 && (
+                    <div className="space-y-2 pt-2">
+                      <div className="text-[10px] font-mono uppercase tracking-wider text-obsidian-inkMuted font-semibold">
+                        Registered Custom Endpoints ({customModels.length})
+                      </div>
+                      {customModels.map((m) => (
+                        <div
+                          key={m.id}
+                          className="p-3 rounded-xl bg-obsidian-surface2 border border-obsidian-hairline flex items-center justify-between gap-3"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-obsidian-inkPrimary truncate">{m.name}</div>
+                            <div className="text-[10px] text-obsidian-inkMuted font-mono truncate">
+                              ID: {m.id} {m.baseUrl ? `· ${m.baseUrl}` : ''}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCustomModel(m.id)}
+                            className="p-1.5 rounded-lg hover:bg-obsidian-surface3 text-obsidian-inkMuted hover:text-red-400 transition-colors cursor-pointer"
+                            title="Delete custom model"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Cloud Providers & API Keys */}
+                <div className="space-y-3 pt-4 border-t border-obsidian-hairline">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-obsidian-inkMuted font-mono">
+                    Cloud Providers & API Keys
+                  </h4>
+                  <div className="space-y-2">
+                    {catalog.map((prov) => {
+                      const isConfigured = prov.isConfigured || prov.hasApiKey;
+                      const isRevealed = revealedKeys[prov.id] || false;
+                      const isSyncing = syncingProvider === prov.id;
+                      return (
+                        <div
+                          key={prov.id}
+                          className="p-3.5 rounded-xl bg-obsidian-surface2 border border-obsidian-hairline flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+                        >
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <span className="font-bold text-obsidian-inkPrimary text-sm">{prov.name}</span>
-                              <span className="text-[9px] font-mono text-obsidian-inkMuted bg-obsidian-surface2 px-2 py-0.5 rounded-full border border-obsidian-hairline">
-                                {prov.badge}
+                              <span className="text-xs font-semibold text-obsidian-inkPrimary">{prov.name}</span>
+                              <span
+                                className={`text-[9px] font-mono px-1.5 py-0.2 rounded-full font-semibold ${
+                                  isConfigured
+                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                    : 'bg-obsidian-surface4 text-obsidian-inkMuted'
+                                }`}
+                              >
+                                {isConfigured ? 'Configured' : 'Not Connected'}
                               </span>
                             </div>
-                            <span className="text-[10px] text-obsidian-inkMuted font-mono">{prov.categoryLabel}</span>
+                            <p className="text-[11px] text-obsidian-inkMuted leading-relaxed">{prov.description}</p>
                           </div>
 
-                          <div className="flex items-center gap-1.5">
-                            {prov.docUrl && (
-                              <a
-                                href={prov.docUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-[10px] text-obsidian-inkMuted hover:text-obsidian-inkPrimary flex items-center gap-1 transition-colors"
-                              >
-                                Docs <ExternalLink className="w-2.5 h-2.5" />
-                              </a>
-                            )}
-                          </div>
-                        </div>
-
-                        <p className="text-[11px] text-obsidian-inkMuted leading-relaxed">{prov.description}</p>
-                      </div>
-
-                      {/* Multi-Auth Mode Switcher (API Key vs Cookie vs OAuth) */}
-                      <div className="space-y-2.5 pt-2 border-t border-obsidian-hairline/60">
-                        {prov.authTypes.length > 1 && (
-                          <div className="flex items-center gap-1 bg-obsidian-surface2 p-0.5 rounded-lg border border-obsidian-hairline w-fit">
-                            {prov.authTypes.includes('api-key') && (
-                              <button
-                                onClick={() => setActiveAuthMode({ ...activeAuthMode, [prov.id]: 'api-key' })}
-                                className={`px-2.5 py-1 rounded-lg text-[10px] font-mono flex items-center gap-1 transition-colors cursor-pointer ${
-                                  currentMode === 'api-key'
-                                    ? 'bg-obsidian-surface3 text-obsidian-inkPrimary font-bold shadow-xs'
-                                    : 'text-obsidian-inkMuted hover:text-obsidian-inkPrimary'
-                                }`}
-                              >
-                                <Key className="w-3 h-3" /> API Key
-                              </button>
-                            )}
-
-                            {prov.authTypes.includes('cookie') && (
-                              <button
-                                onClick={() => setActiveAuthMode({ ...activeAuthMode, [prov.id]: 'cookie' })}
-                                className={`px-2.5 py-1 rounded-lg text-[10px] font-mono flex items-center gap-1 transition-colors cursor-pointer ${
-                                  currentMode === 'cookie'
-                                    ? 'bg-obsidian-surface3 text-obsidian-inkPrimary font-bold shadow-xs'
-                                    : 'text-obsidian-inkMuted hover:text-obsidian-inkPrimary'
-                                }`}
-                              >
-                                <CookieIcon className="w-3 h-3" /> Cookie Session
-                              </button>
-                            )}
-
-                            {prov.authTypes.includes('oauth') && (
-                              <button
-                                onClick={() => setActiveAuthMode({ ...activeAuthMode, [prov.id]: 'oauth' })}
-                                className={`px-2.5 py-1 rounded-lg text-[10px] font-mono flex items-center gap-1 transition-colors cursor-pointer ${
-                                  currentMode === 'oauth'
-                                    ? 'bg-obsidian-surface3 text-obsidian-inkPrimary font-bold shadow-xs'
-                                    : 'text-obsidian-inkMuted hover:text-obsidian-inkPrimary'
-                                }`}
-                              >
-                                <Zap className="w-3 h-3" /> OAuth Login
-                              </button>
-                            )}
-                          </div>
-                        )}
-
-                        {/* MODE 1: API KEY INPUT */}
-                        {currentMode === 'api-key' && (
-                          <div className="space-y-1">
-                            <div className="relative flex items-center">
+                          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                            <div className="relative flex-1 sm:w-56">
                               <input
                                 type={isRevealed ? 'text' : 'password'}
-                                value={currentKey}
-                                onChange={(e) => setProviderKeys({ ...providerKeys, [prov.id]: e.target.value })}
-                                placeholder={
-                                  prov.hasApiKey
-                                    ? `Saved ${prov.savedApiKeyPreview || ''} — paste to replace`
-                                    : prov.placeholder || 'Paste API Key (sk-...)'
+                                value={providerKeys[prov.id] ?? ''}
+                                onChange={(e) =>
+                                  setProviderKeys((prev) => ({ ...prev, [prov.id]: e.target.value }))
                                 }
-                                className="w-full pl-3 pr-10 py-1.5 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent"
+                                placeholder={isConfigured ? '••••••••••••••••' : 'Enter API Key...'}
+                                className="w-full h-8 pl-3 pr-8 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs font-mono text-obsidian-inkPrimary focus:outline-none"
                               />
                               <button
                                 type="button"
-                                onClick={() => setRevealedKeys({ ...revealedKeys, [prov.id]: !isRevealed })}
-                                className="absolute right-2 text-obsidian-inkMuted hover:text-obsidian-inkPrimary p-1"
+                                onClick={() =>
+                                  setRevealedKeys((prev) => ({ ...prev, [prov.id]: !isRevealed }))
+                                }
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-obsidian-inkMuted hover:text-obsidian-inkPrimary cursor-pointer"
                               >
                                 {isRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                               </button>
                             </div>
-                            {currentKey.trim() !== '' && (
-                              <p className="text-[9px] font-mono text-obsidian-inkMuted px-0.5">
-                                New key replaces the saved one on Save.
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        {/* MODE 2: COOKIE SESSION INPUT */}
-                        {currentMode === 'cookie' && (
-                          <div className="space-y-1.5">
-                            <div className="p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-[10px] text-obsidian-inkSecondary">
-                              <p className="font-semibold flex items-center gap-1 text-obsidian-inkPrimary">
-                                <CookieIcon className="w-3 h-3" /> Cookie Authentication
-                              </p>
-                              <p className="text-obsidian-inkMuted mt-0.5">
-                                {prov.cookieHint || 'Paste your web session cookies or __Secure-next-auth.session-token from DevTools.'}
-                              </p>
-                            </div>
-                            <textarea
-                              value={currentCookie}
-                              onChange={(e) => setProviderCookies({ ...providerCookies, [prov.id]: e.target.value })}
-                              placeholder={
-                                prov.hasCookie
-                                  ? `Saved ${prov.savedCookiePreview || ''} — paste to replace`
-                                  : 'Paste cookie line (e.g. __Secure-next-auth.session-token=eyJ...; cf_clearance=...)'
-                              }
-                              rows={2}
-                              className="w-full p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent resize-none"
-                            />
-                            {currentCookie.trim() !== '' && (
-                              <p className="text-[9px] font-mono text-obsidian-inkMuted px-0.5">
-                                New cookies replace the saved session on Save.
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        {/* MODE 3: OAUTH LOGIN */}
-                        {currentMode === 'oauth' && (
-                          <div className="p-3 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg space-y-2">
-                            <div>
-                              <div className="font-semibold text-obsidian-inkPrimary text-xs">Sign-in via Browser</div>
-                              <p className="text-[10px] text-obsidian-inkMuted">
-                                Opens {prov.name} in your browser. Sign in there, then copy your session cookie and paste it below —
-                                this studio connects through the session, not a popup handshake.
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <a
-                                href={prov.website}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="px-3 py-1.5 bg-obsidian-inkPrimary hover:bg-obsidian-accentHover text-obsidian-canvas font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer text-xs"
-                              >
-                                <ExternalLink className="w-3 h-3" /> Open {prov.name}
-                              </a>
-                              {prov.authTypes.includes('cookie') && (
-                                <button
-                                  type="button"
-                                  onClick={() => setActiveAuthMode({ ...activeAuthMode, [prov.id]: 'cookie' })}
-                                  className="px-3 py-1.5 border border-obsidian-hairline bg-obsidian-surface1 hover:bg-obsidian-surface2 text-obsidian-inkSecondary hover:text-obsidian-inkPrimary rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer text-xs"
-                                >
-                                  <CookieIcon className="w-3 h-3" /> Paste session cookie instead
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* MODE 4: LOCAL RUNTIME */}
-                        {prov.authTypes.includes('local') && currentMode !== 'api-key' && currentMode !== 'cookie' && (
-                          <div className="relative flex items-center">
-                            <input
-                              type="text"
-                              value={currentUrl || prov.defaultBaseUrl || ''}
-                              onChange={(e) => setProviderBaseUrls({ ...providerBaseUrls, [prov.id]: e.target.value })}
-                              placeholder={prov.defaultBaseUrl}
-                              className="w-full pl-3 pr-3 py-1.5 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent"
-                            />
-                          </div>
-                        )}
-
-                        {/* Action Footer: Save & Test Connection */}
-                        <div className="flex items-center justify-between pt-1 text-[11px]">
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              onClick={() => handleSaveProvider(prov.id)}
-                              disabled={syncing}
-                              className="px-2.5 py-1 bg-obsidian-surface2 hover:bg-obsidian-surface3 text-obsidian-inkPrimary rounded-lg border border-obsidian-hairline font-mono flex items-center gap-1 transition-colors cursor-pointer"
-                            >
-                              <Check className="w-3 h-3" />
-                              <span>Save</span>
-                            </button>
 
                             <button
-                              onClick={() => handleTestConnection(prov.id)}
-                              disabled={isTesting}
-                              className="px-2.5 py-1 bg-obsidian-surface2 hover:bg-obsidian-surface3 text-obsidian-inkSecondary hover:text-obsidian-inkPrimary rounded-lg border border-obsidian-hairline font-mono flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                              type="button"
+                              disabled={isSyncing || !(providerKeys[prov.id] || '').trim()}
+                              onClick={() => handleSaveProviderKey(prov.id)}
+                              className="h-8 px-3 rounded-lg bg-obsidian-inkPrimary text-obsidian-canvas text-xs font-medium hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40 shrink-0"
                             >
-                              {isTesting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
-                              <span>Test Ping</span>
+                              {isSyncing ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
                             </button>
                           </div>
-
-                          {testRes && (
-                            <span className={`font-mono text-[10px] flex items-center gap-1 ${
-                              testRes.ok ? 'text-obsidian-inkPrimary' : 'text-red-400'
-                            }`}>
-                              {testRes.ok ? (
-                                <>
-                                  <CheckCircle2 className="w-3 h-3 text-obsidian-inkSecondary" />
-                                  <span>{testRes.latencyMs}ms</span>
-                                </>
-                              ) : (
-                                <>
-                                  <AlertCircle className="w-3 h-3" />
-                                  <span className="truncate max-w-[130px]">{testRes.error || 'Failed'}</span>
-                                </>
-                              )}
-                            </span>
-                          )}
                         </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* TAB 2: ROUTING & AUTONOMOUS FAILOVER */}
-          {activeTab === 'routing' && (
-            <div className="max-w-2xl mx-auto space-y-5">
-              <div className="p-4 bg-obsidian-surface1 border border-obsidian-hairline rounded-xl space-y-4">
-                <h3 className="font-bold text-obsidian-inkPrimary text-sm flex items-center gap-2">
-                  <Radio className="w-4 h-4 text-obsidian-inkPrimary" />
-                  Routing & Fallback Policies
-                </h3>
-
-                <div className="space-y-3 pt-2">
-                  <div className="p-3 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg">
-                    <div className="font-semibold text-obsidian-inkPrimary">Automatic Failover</div>
-                    <div className="text-[11px] text-obsidian-inkMuted">
-                      Always active. When a provider fails or rate-limits, the request retries (up to 8 attempts)
-                      and hands off across your connected providers — announced live in the thinking trace and the
-                      Activity network log.
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5 p-3 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-obsidian-inkPrimary">Retry attempts per request</span>
-                      <span className="font-mono text-obsidian-inkSecondary">{routingConfig.retryAttempts}</span>
-                    </div>
-                    <p className="text-[11px] text-obsidian-inkMuted">
-                      Total attempts across your available models before an honest failure (4-10).
-                    </p>
-                    <input
-                      type="range"
-                      min="4"
-                      max="10"
-                      step="1"
-                      value={routingConfig.retryAttempts}
-                      onChange={(e) => updateRoutingConfig({ retryAttempts: Number(e.target.value) })}
-                      className="w-full accent-obsidian-accentHover cursor-pointer mt-2"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5 p-3 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-obsidian-inkPrimary">Auto-compact context</span>
-                      <label className="flex items-center gap-2 text-[11px] font-mono text-obsidian-inkSecondary cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={routingConfig.autoCompactEnabled}
-                          onChange={(e) => updateRoutingConfig({ autoCompactEnabled: e.target.checked })}
-                          className="w-4 h-4 accent-obsidian-accentHover cursor-pointer"
-                        />
-                        {routingConfig.autoCompactEnabled ? 'On' : 'Off'}
-                      </label>
-                    </div>
-                    <p className="text-[11px] text-obsidian-inkMuted">
-                      When a conversation reaches this share of the model's context window, older messages are
-                      compacted automatically so long sessions keep working.
-                    </p>
-                    {routingConfig.autoCompactEnabled && (
-                      <div className="flex items-center gap-3 mt-1">
-                        <input
-                          type="range"
-                          min="60"
-                          max="95"
-                          step="5"
-                          value={routingConfig.autoCompactThreshold}
-                          onChange={(e) => updateRoutingConfig({ autoCompactThreshold: Number(e.target.value) })}
-                          className="flex-1 accent-obsidian-accentHover cursor-pointer"
-                        />
-                        <span className="font-mono text-obsidian-inkSecondary text-xs w-10 text-right">
-                          {routingConfig.autoCompactThreshold}%
-                        </span>
-                      </div>
+            {/* TAB: MEDIA & GENERATION STUDIO */}
+            {activeTab === 'media' && (
+              <div className="space-y-6 max-w-2xl">
+                {/* Image Generation Section */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-obsidian-inkMuted font-mono flex items-center gap-1.5">
+                      <ImageIcon className="w-3.5 h-3.5 text-obsidian-inkPrimary" />
+                      <span>Image Asset Studio</span>
+                    </h4>
+                    {isSavingMedia && (
+                      <span className="text-[11px] text-obsidian-inkMuted flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Saving...
+                      </span>
                     )}
                   </div>
-
-                  <div className="space-y-1.5 p-3 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-obsidian-inkPrimary">TPM Compactor Safeguard Threshold</span>
-                      <span className="font-mono text-obsidian-inkSecondary">{routingConfig.tpmBudget} tokens</span>
-                    </div>
-                    <p className="text-[11px] text-obsidian-inkMuted">
-                      Compacts historical tool outputs when payload reaches this budget to eliminate HTTP 413 errors.
-                    </p>
-                    <input
-                      type="range"
-                      min="2000"
-                      max="16000"
-                      step="500"
-                      value={routingConfig.tpmBudget}
-                      onChange={(e) => updateRoutingConfig({ tpmBudget: Number(e.target.value) })}
-                      className="w-full accent-obsidian-accentHover cursor-pointer mt-2"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-4 bg-obsidian-surface1 border border-obsidian-hairline rounded-xl space-y-3">
-                <h3 className="font-bold text-obsidian-inkPrimary text-sm">Model Priority</h3>
-                <RoutingPriorityList />
-              </div>
-
-              <UpdateCheckRow />
-            </div>
-          )}
-
-          {/* TAB 3: LOCAL RUNTIMES & MODEL DISCOVERY */}
-          {activeTab === 'local' && (
-            <div className="max-w-3xl mx-auto space-y-4">
-              <div className="p-4 bg-obsidian-surface1 border border-obsidian-hairline rounded-xl flex items-center justify-between">
-                <div>
-                  <h3 className="font-bold text-obsidian-inkPrimary text-sm flex items-center gap-2">
-                    <Cpu className="w-4 h-4 text-obsidian-inkPrimary" />
-                    Local Runtime Scanner
-                  </h3>
-                  <p className="text-obsidian-inkMuted text-xs mt-0.5">
-                    Scan <code className="text-obsidian-inkSecondary">localhost:11434</code> (Ollama) and <code className="text-obsidian-inkSecondary">localhost:1234</code> (LM Studio).
-                  </p>
-                </div>
-
-                <button
-                  onClick={handleScanLocal}
-                  disabled={isScanningLocal}
-                  className="px-3.5 py-1.5 bg-obsidian-surface2 hover:bg-obsidian-surface3 text-obsidian-inkPrimary border border-obsidian-hairline font-mono rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  {isScanningLocal ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-                  <span>Scan Local</span>
-                </button>
-              </div>
-
-              {/* Detected Models List */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="p-4 bg-obsidian-surface1 border border-obsidian-hairline rounded-xl space-y-3">
-                  <div className="flex items-center justify-between font-bold text-obsidian-inkPrimary">
-                    <span>Ollama ({detectedLocalModels.ollama.length})</span>
-                    <span className="text-[10px] font-mono text-obsidian-inkMuted">11434</span>
-                  </div>
-                  {detectedLocalModels.ollama.length === 0 ? (
-                    <p className="text-[11px] text-obsidian-inkMuted">No Ollama models detected. Start Ollama on port 11434.</p>
-                  ) : (
-                    <div className="space-y-1 font-mono text-[11px]">
-                      {detectedLocalModels.ollama.map((m) => (
-                        <div key={m} className="p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg flex items-center justify-between">
-                          <span className="text-obsidian-inkPrimary">{m}</span>
-                          <span className="text-[9px] text-obsidian-inkSecondary bg-obsidian-surface3 px-1.5 py-0.5 rounded-full border border-obsidian-hairline font-mono">READY</span>
+                  <div className="p-4 rounded-xl bg-obsidian-surface2 border border-obsidian-hairline space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Default Image Provider</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">
+                          Engine used when generating logos, mockups, banners, and icons.
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="p-4 bg-obsidian-surface1 border border-obsidian-hairline rounded-xl space-y-3">
-                  <div className="flex items-center justify-between font-bold text-obsidian-inkPrimary">
-                    <span>LM Studio ({detectedLocalModels.lmstudio.length})</span>
-                    <span className="text-[10px] font-mono text-obsidian-inkMuted">1234</span>
-                  </div>
-                  {detectedLocalModels.lmstudio.length === 0 ? (
-                    <p className="text-[11px] text-obsidian-inkMuted">No LM Studio models detected. Start local server on port 1234.</p>
-                  ) : (
-                    <div className="space-y-1 font-mono text-[11px]">
-                      {detectedLocalModels.lmstudio.map((m) => (
-                        <div key={m} className="p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg flex items-center justify-between">
-                          <span className="text-obsidian-inkPrimary">{m}</span>
-                          <span className="text-[9px] text-obsidian-inkSecondary bg-obsidian-surface3 px-1.5 py-0.5 rounded-full border border-obsidian-hairline font-mono">READY</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 4: CUSTOM MODALITY MODELS (IMAGE, VIDEO, AUDIO, LLM) */}
-          {activeTab === 'custom' && (
-            <div className="max-w-3xl mx-auto space-y-5">
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  if (!customModelId.trim() || !customModelName.trim()) return;
-                  setAddingCustom(true);
-                  setCustomModelError('');
-                  // Stable id keeps re-adds idempotent and makes delete target unambiguous
-                  const stableId = `custom-${customModelCategory}-${customModelProvider.trim().toLowerCase()}-${customModelId.trim()}`.replace(/\s+/g, '-');
-                  try {
-                    const res = await fetch('/api/custom-models', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        id: stableId,
-                        category: customModelCategory,
-                        name: customModelName.trim(),
-                        providerId: customModelProvider.trim(),
-                        modelId: customModelId.trim(),
-                        description: customModelDescription.trim() || `Custom ${customModelCategory} generation model.`,
-                        config: {
-                          baseUrl: customBaseUrl.trim() || undefined,
-                          apiKey: customApiKey.trim() || undefined,
-                          supportsVision: customSupportsVision,
-                          supportsTools: customSupportsTools,
-                        },
-                      }),
-                    });
-                    const data = await res.json();
-                    if (!data.success) {
-                      throw new Error(data.error || 'Could not save the custom model — check the details and try again.');
-                    }
-
-                    // Register with the live model router so the model shows up in the
-                    // dropdown under its provider on the next /api/models poll — no restart.
-                    const regRes = await fetch('/api/models/custom', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        id: customModelId.trim(),
-                        name: customModelName.trim(),
-                        provider: customModelProvider.trim(),
-                        baseUrl: customBaseUrl.trim() || undefined,
-                        apiKey: customApiKey.trim() || undefined,
-                        supportsVision: customSupportsVision,
-                        supportsTools: customSupportsTools,
-                      }),
-                    });
-                    const regData = await regRes.json().catch(() => ({}));
-                    if (!regData.success) {
-                      throw new Error(regData.error || 'Saved, but routing registration failed — the model may not appear in the picker until it succeeds.');
-                    }
-
-                    setStatusMessage({ text: `Custom ${customModelCategory.toUpperCase()} model "${customModelName}" configured for AI routing.`, type: 'success' });
-                    setCustomModelId('');
-                    setCustomModelName('');
-                    setCustomModelDescription('');
-                    setCustomBaseUrl('');
-                    setCustomApiKey('');
-                    fetchCustomModelsAndMcp();
-                  } catch (err: any) {
-                    const msg = err?.message || 'Error configuring custom model';
-                    setCustomModelError(msg);
-                    setStatusMessage({ text: msg, type: 'error' });
-                  } finally {
-                    setAddingCustom(false);
-                    setTimeout(() => setStatusMessage(null), 4000);
-                  }
-                }}
-                className="p-4 bg-obsidian-surface1 border border-obsidian-hairline rounded-xl space-y-4"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-bold text-obsidian-inkPrimary text-sm flex items-center gap-2">
-                      <Plus className="w-4 h-4 text-obsidian-inkSecondary" />
-                      Add Custom Model with AI Use Case Guidance
-                    </h3>
-                    <p className="text-obsidian-inkMuted text-xs mt-0.5">
-                      Configure specialized models for Image, Video, Audio, or LLM and describe their exact purpose for autonomous AI tool routing.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Modality Category Selector */}
-                <div className="flex items-center gap-2 p-1 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg">
-                  {[
-                    { id: 'image' as const, label: 'Image Generation', icon: ImageIcon },
-                    { id: 'video' as const, label: 'Video Diffusion', icon: Film },
-                    { id: 'audio' as const, label: 'Voice & Audio', icon: Volume2 },
-                    { id: 'llm' as const, label: 'LLM & Reasoning', icon: Cpu },
-                  ].map((cat) => {
-                    const Icon = cat.icon;
-                    return (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        onClick={() => setCustomModelCategory(cat.id)}
-                        className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-mono transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
-                          customModelCategory === cat.id
-                            ? 'bg-white text-black font-semibold shadow-sm'
-                            : 'text-obsidian-inkMuted hover:text-obsidian-inkPrimary'
-                        }`}
+                      </div>
+                      <select
+                        value={imageProvider}
+                        onChange={(e) => updateMediaSetting('imageProvider', e.target.value)}
+                        className="h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs text-obsidian-inkPrimary focus:outline-none cursor-pointer"
                       >
-                        <Icon className="w-3.5 h-3.5" />
-                        <span>{cat.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                        <option value="auto">Auto (Smart Provider Fallback)</option>
+                        <option value="dalle3">OpenAI DALL-E 3 (High Fidelity)</option>
+                        <option value="imagen3">Google Imagen 3 (Photorealistic)</option>
+                        <option value="flux">FLUX.1 Schnell / Replicate</option>
+                        <option value="chatgpt-web">ChatGPT Web Session (Cookie)</option>
+                        <option value="pollinations">Pollinations (Instant Multi-Engine)</option>
+                      </select>
+                    </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-obsidian-inkMuted text-[11px] mb-1 font-mono">Display Name</label>
-                    <input
-                      type="text"
-                      value={customModelName}
-                      onChange={(e) => setCustomModelName(e.target.value)}
-                      placeholder={
-                        customModelCategory === 'image' ? 'e.g. FLUX.1 Pro Ultra' :
-                        customModelCategory === 'video' ? 'e.g. Minimax Video-01 HD' :
-                        customModelCategory === 'audio' ? 'e.g. ElevenLabs Turbo v2.5' :
-                        'e.g. Qwen 2.5 Coder 32B Local'
-                      }
-                      className="w-full p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-obsidian-inkMuted text-[11px] mb-1 font-mono">Model ID / Hub Path</label>
-                    <input
-                      type="text"
-                      value={customModelId}
-                      onChange={(e) => setCustomModelId(e.target.value)}
-                      placeholder={
-                        customModelCategory === 'image' ? 'black-forest-labs/flux-1.1-pro' :
-                        customModelCategory === 'video' ? 'minimax/video-01' :
-                        customModelCategory === 'audio' ? 'eleven_multilingual_v2' :
-                        'qwen2.5-coder:32b'
-                      }
-                      className="w-full p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-obsidian-inkMuted text-[11px] mb-1 font-mono">Provider / Gateway</label>
-                    <input
-                      type="text"
-                      value={customModelProvider}
-                      onChange={(e) => setCustomModelProvider(e.target.value)}
-                      placeholder="replicate / fal-ai / openai / local"
-                      className="w-full p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary"
-                    />
-                  </div>
-                </div>
-
-                {/* AI Prompt Usage Guidance */}
-                <div>
-                  <label className="block text-obsidian-inkSecondary text-[11px] mb-1 font-mono flex items-center justify-between">
-                    <span>Describe Its Use to the AI (Autonomous Tool Instruction)</span>
-                    <span className="text-obsidian-inkMuted text-[10px]">Injected into AI system prompt</span>
-                  </label>
-                  <textarea
-                    value={customModelDescription}
-                    onChange={(e) => setCustomModelDescription(e.target.value)}
-                    placeholder={
-                      customModelCategory === 'image'
-                        ? 'e.g. Use for 8K hyper-detailed photorealistic UI mockups and dark cyber-aesthetic hero banners with crisp embedded text.'
-                        : customModelCategory === 'video'
-                        ? 'e.g. Use for cinematic 1080p feature walkthrough animations and high dynamic range 60fps UI motion previews.'
-                        : customModelCategory === 'audio'
-                        ? 'e.g. Use for energetic, natural voiceover narration for product launch demos and UI click sound synthesis.'
-                        : 'e.g. Use for complex multi-file TypeScript refactoring, abstract syntax tree transformations, and deep logic bugs.'
-                    }
-                    rows={2}
-                    className="w-full p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary resize-none"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-obsidian-inkMuted text-[11px] mb-1 font-mono">Custom Base URL (Optional)</label>
-                    <input
-                      type="text"
-                      value={customBaseUrl}
-                      onChange={(e) => setCustomBaseUrl(e.target.value)}
-                      placeholder="e.g. http://localhost:8000/v1"
-                      className="w-full p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-obsidian-inkMuted text-[11px] mb-1 font-mono">API Key / Token (Optional)</label>
-                    <input
-                      type="password"
-                      value={customApiKey}
-                      onChange={(e) => setCustomApiKey(e.target.value)}
-                      placeholder="Bearer token if required"
-                      className="w-full p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary"
-                    />
-                  </div>
-                </div>
-
-                {customModelError && (
-                  <p className="flex items-start gap-1.5 text-[11px] text-red-400 bg-red-950/40 border border-red-800/60 rounded-lg px-2.5 py-1.5">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                    <span>{customModelError}</span>
-                  </p>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={addingCustom || !customModelId.trim() || !customModelName.trim()}
-                  className="w-full py-2 bg-white text-black hover:bg-obsidian-accentHover font-semibold rounded-lg flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
-                >
-                  {addingCustom ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                  <span>Save Custom {customModelCategory.toUpperCase()} Model for AI Routing</span>
-                </button>
-              </form>
-
-              {/* Saved Custom Models Catalog */}
-              {savedCustomModels.length > 0 && (
-                <div className="p-4 bg-obsidian-surface1 border border-obsidian-hairline rounded-xl space-y-3">
-                  <h4 className="text-xs font-bold text-obsidian-inkPrimary uppercase tracking-wider font-mono">
-                    Configured Custom Models ({savedCustomModels.length})
-                  </h4>
-                  <div className="space-y-2">
-                    {savedCustomModels.map((m) => (
-                      <div key={m.id} className="p-2.5 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg flex items-start justify-between gap-3">
-                        <div className="space-y-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-white font-mono">{m.name}</span>
-                            <span className="text-[9px] uppercase px-1.5 py-0.2 rounded-full bg-white/[0.08] text-obsidian-inkSecondary font-mono">
-                              {m.category}
-                            </span>
-                            <span className="text-[10px] text-obsidian-inkMuted font-mono">ID: {m.modelId}</span>
-                          </div>
-                          <p className="text-[11px] text-obsidian-inkSecondary font-sans">{m.description}</p>
+                    <div className="flex items-center justify-between gap-4 pt-2 border-t border-obsidian-hairline/60">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Default Aspect Ratio</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">
+                          Canvas dimensions for generated visual assets.
                         </div>
-                        <button
-                          onClick={async () => {
-                            await fetch(`/api/custom-models/${m.id}`, { method: 'DELETE' });
-                            fetchCustomModelsAndMcp();
-                          }}
-                          className="p-1 text-obsidian-inkMuted hover:text-red-400 transition-colors cursor-pointer shrink-0"
-                          title="Delete custom model"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+                      <select
+                        value={imageAspectRatio}
+                        onChange={(e) => updateMediaSetting('imageAspectRatio', e.target.value)}
+                        className="h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs text-obsidian-inkPrimary focus:outline-none cursor-pointer"
+                      >
+                        <option value="1:1">1:1 Square (1024 x 1024)</option>
+                        <option value="16:9">16:9 Landscape (1792 x 1024)</option>
+                        <option value="9:16">9:16 Portrait / Story (1024 x 1792)</option>
+                        <option value="4:3">4:3 Standard (1024 x 768)</option>
+                        <option value="3:2">3:2 Classic Photo (1200 x 800)</option>
+                      </select>
+                    </div>
 
-          {/* TAB 5: MODEL CONTEXT PROTOCOL (MCP) SERVERS */}
-          {activeTab === 'mcp' && (
-            <div className="max-w-3xl mx-auto space-y-5">
-              {/* Add Custom MCP Server Form */}
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  if (!newMcpName.trim()) return;
-                  setAddingMcp(true);
-                  try {
-                    const res = await fetch('/api/mcp/servers', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        name: newMcpName.trim(),
-                        transport: newMcpTransport,
-                        command: newMcpCommand.trim() || undefined,
-                        args: newMcpArgs.trim() ? newMcpArgs.split(' ') : [],
-                        url: newMcpUrl.trim() || undefined,
-                        description: newMcpDescription.trim() || undefined,
-                      }),
-                    });
-                    const data = await res.json();
-                    if (data.success) {
-                      setStatusMessage({ text: `Custom MCP Server "${newMcpName}" connected.`, type: 'success' });
-                      setNewMcpName('');
-                      setNewMcpCommand('');
-                      setNewMcpArgs('');
-                      setNewMcpUrl('');
-                      setNewMcpDescription('');
-                      fetchCustomModelsAndMcp();
-                    } else {
-                      setStatusMessage({ text: data.error || 'Could not connect the MCP server — verify the command or URL.', type: 'error' });
-                    }
-                  } catch (err: any) {
-                    setStatusMessage({ text: err.message || 'Error adding MCP server', type: 'error' });
-                  } finally {
-                    setAddingMcp(false);
-                    setTimeout(() => setStatusMessage(null), 4000);
-                  }
-                }}
-                className="p-4 bg-obsidian-surface1 border border-obsidian-hairline rounded-xl space-y-4"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-bold text-obsidian-inkPrimary text-sm flex items-center gap-2">
-                      <Server className="w-4 h-4 text-obsidian-inkSecondary" />
-                      Connect Custom Model Context Protocol (MCP) Server
-                    </h3>
-                    <p className="text-obsidian-inkMuted text-xs mt-0.5">
-                      Integrate standard MCP tool servers (PostgreSQL databases, GitHub PRs, Docker sandboxes, Figma designs, Firebase).
-                    </p>
-                  </div>
-                  <span className="text-[10px] font-mono text-obsidian-inkMuted bg-obsidian-surface2 px-2 py-0.5 rounded-full border border-obsidian-hairline">
-                    JSON-RPC 2.0
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-obsidian-inkMuted text-[11px] mb-1 font-mono">Server Name</label>
-                    <input
-                      type="text"
-                      value={newMcpName}
-                      onChange={(e) => setNewMcpName(e.target.value)}
-                      placeholder="e.g. postgres-db"
-                      className="w-full p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-obsidian-inkMuted text-[11px] mb-1 font-mono">Transport Type</label>
-                    <select
-                      value={newMcpTransport}
-                      onChange={(e) => setNewMcpTransport(e.target.value as any)}
-                      className="w-full p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary"
-                    >
-                      <option value="stdio">stdio (Local CLI Process)</option>
-                      <option value="sse">sse (Server-Sent Events)</option>
-                      <option value="http">http (HTTP Streaming)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-obsidian-inkMuted text-[11px] mb-1 font-mono">
-                      {newMcpTransport === 'stdio' ? 'Command' : 'Endpoint URL'}
-                    </label>
-                    <input
-                      type="text"
-                      value={newMcpTransport === 'stdio' ? newMcpCommand : newMcpUrl}
-                      onChange={(e) => newMcpTransport === 'stdio' ? setNewMcpCommand(e.target.value) : setNewMcpUrl(e.target.value)}
-                      placeholder={newMcpTransport === 'stdio' ? 'npx -y @modelcontextprotocol/server-postgres' : 'http://localhost:3005/sse'}
-                      className="w-full p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary"
-                    />
-                  </div>
-                </div>
-
-                {newMcpTransport === 'stdio' && (
-                  <div>
-                    <label className="block text-obsidian-inkMuted text-[11px] mb-1 font-mono">Command Arguments (Space separated)</label>
-                    <input
-                      type="text"
-                      value={newMcpArgs}
-                      onChange={(e) => setNewMcpArgs(e.target.value)}
-                      placeholder="postgresql://user:pass@localhost:5432/mydb"
-                      className="w-full p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary"
-                    />
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-obsidian-inkMuted text-[11px] mb-1 font-mono">Description of Tools Provided (Optional)</label>
-                  <input
-                    type="text"
-                    value={newMcpDescription}
-                    onChange={(e) => setNewMcpDescription(e.target.value)}
-                    placeholder="e.g. Query and migrate PostgreSQL relational databases with schema introspection"
-                    className="w-full p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={addingMcp || !newMcpName.trim()}
-                  className="w-full py-2 bg-white text-black hover:bg-obsidian-accentHover font-semibold rounded-lg flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
-                >
-                  {addingMcp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                  <span>Register & Connect MCP Server</span>
-                </button>
-              </form>
-
-              {/* Connected MCP Servers List */}
-              <div className="p-4 bg-obsidian-surface1 border border-obsidian-hairline rounded-xl space-y-3">
-                <h4 className="text-xs font-bold text-obsidian-inkPrimary uppercase tracking-wider font-mono">
-                  Active MCP Servers ({mcpServers.length})
-                </h4>
-                {mcpServers.length === 0 ? (
-                  <p className="text-xs text-obsidian-inkMuted">No external MCP servers configured. Add an MCP server above.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {mcpServers.map((srv) => (
-                      <div key={srv.id} className="p-2.5 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-white font-mono">{srv.name}</span>
-                            <span className="text-[9px] uppercase px-1.5 py-0.2 rounded-full bg-white/[0.08] text-obsidian-inkSecondary font-mono">
-                              {srv.transport}
-                            </span>
-                            <span className="text-[9px] text-obsidian-inkMuted bg-white/[0.04] px-1.5 py-0.2 rounded-full font-mono">ACTIVE</span>
-                          </div>
-                          <p className="text-[11px] text-obsidian-inkMuted font-mono truncate max-w-lg">
-                            {srv.command || srv.url || 'Internal MCP'}
-                          </p>
+                    <div className="flex items-center justify-between gap-4 pt-2 border-t border-obsidian-hairline/60">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Aesthetic Style Preset</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">
+                          Style bias injected into visual generation prompts.
                         </div>
-                        <button
-                          onClick={async () => {
-                            await fetch(`/api/mcp/servers/${srv.id}`, { method: 'DELETE' });
-                            fetchCustomModelsAndMcp();
-                          }}
-                          className="p-1 text-obsidian-inkMuted hover:text-red-400 transition-colors cursor-pointer shrink-0"
-                          title="Disconnect MCP server"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 6: ABOUT — VERSION + UPDATE CHECK */}
-          {activeTab === 'about' && (
-            <div className="max-w-2xl mx-auto space-y-5">
-              <div className="p-4 bg-obsidian-surface1 border border-obsidian-hairline rounded-xl space-y-4">
-                <h3 className="font-bold text-obsidian-inkPrimary text-sm flex items-center gap-2">
-                  <Info className="w-4 h-4 text-obsidian-inkSecondary" />
-                  About SUTRA
-                </h3>
-
-                <div className="flex items-center justify-between p-3 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg">
-                  <div>
-                    <div className="font-semibold text-obsidian-inkPrimary">Version</div>
-                    <div className="text-[11px] text-obsidian-inkMuted font-mono">
-                      {appVersion ? `SUTRA Studio ${appVersion}` : 'Checking installed version…'}
+                      <select
+                        value={imageStyle}
+                        onChange={(e) => updateMediaSetting('imageStyle', e.target.value)}
+                        className="h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs text-obsidian-inkPrimary focus:outline-none cursor-pointer"
+                      >
+                        <option value="photo">Photorealistic & Cinematic</option>
+                        <option value="digital-art">Digital Art & Illustration</option>
+                        <option value="vector">Vector Graphic & Iconography</option>
+                        <option value="3d-render">3D Isometric & Octane Render</option>
+                        <option value="anime">Anime & Manga Style</option>
+                        <option value="minimal">Minimalist & Monochrome</option>
+                      </select>
                     </div>
                   </div>
-                  <button
-                    onClick={handleCheckForUpdates}
-                    disabled={updateState === 'checking'}
-                    className="px-3 py-1.5 bg-obsidian-surface3 hover:bg-obsidian-surface2 text-obsidian-inkPrimary border border-obsidian-hairline rounded-lg font-mono text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 shrink-0"
-                  >
-                    {updateState === 'checking' ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                    <span>Check for updates</span>
-                  </button>
                 </div>
 
-                {updateMessage && (
-                  <p
-                    role="status"
-                    className={`text-[11px] font-mono rounded-lg px-2.5 py-1.5 border ${
-                      updateState === 'available'
-                        ? 'bg-obsidian-surface2 text-obsidian-inkPrimary border-obsidian-border'
-                        : updateState === 'error'
-                          ? 'bg-red-950/40 text-red-300 border-red-800/60'
-                          : 'bg-obsidian-surface2 text-obsidian-inkSecondary border-obsidian-hairline'
-                    }`}
-                  >
-                    {updateMessage}
-                  </p>
-                )}
+                {/* Video Generation Section */}
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-obsidian-inkMuted font-mono flex items-center gap-1.5">
+                    <Film className="w-3.5 h-3.5 text-obsidian-inkPrimary" />
+                    <span>Motion & Video Studio</span>
+                  </h4>
+                  <div className="p-4 rounded-xl bg-obsidian-surface2 border border-obsidian-hairline space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Video Model Provider</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">
+                          AI video generation pipeline for UI animations, teasers, and heroes.
+                        </div>
+                      </div>
+                      <select
+                        value={videoProvider}
+                        onChange={(e) => updateMediaSetting('videoProvider', e.target.value)}
+                        className="h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs text-obsidian-inkPrimary focus:outline-none cursor-pointer"
+                      >
+                        <option value="auto">Auto (Replicate Minimax with Pollinations fallback)</option>
+                        <option value="replicate">Replicate Minimax Video-01 / Luma</option>
+                        <option value="pollinations">Pollinations Video Engine</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
 
-                <p className="text-[10px] text-obsidian-inkMuted">
-                  Updates are never downloaded automatically. When one is available, grab it from the project website and reinstall.
-                </p>
+                {/* Audio & Speech Section */}
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-obsidian-inkMuted font-mono flex items-center gap-1.5">
+                    <Volume2 className="w-3.5 h-3.5 text-obsidian-inkPrimary" />
+                    <span>Audio & Speech Synthesis</span>
+                  </h4>
+                  <div className="p-4 rounded-xl bg-obsidian-surface2 border border-obsidian-hairline space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">TTS Speech Voice</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">
+                          Voice persona used when generating spoken voiceovers and TTS audio.
+                        </div>
+                      </div>
+                      <select
+                        value={audioVoice}
+                        onChange={(e) => updateMediaSetting('audioVoice', e.target.value)}
+                        className="h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs text-obsidian-inkPrimary focus:outline-none cursor-pointer"
+                      >
+                        <option value="alloy">Alloy (Neutral & Balanced)</option>
+                        <option value="echo">Echo (Warm & Conversational)</option>
+                        <option value="fable">Fable (Expressive & British accent)</option>
+                        <option value="onyx">Onyx (Deep & Authoritative)</option>
+                        <option value="nova">Nova (Energetic & Dynamic)</option>
+                        <option value="shimmer">Shimmer (Clear & Pleasant)</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 pt-2 border-t border-obsidian-hairline/60">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Sound Effects & Foley Engine</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">
+                          Engine for tactile button clicks, chimes, alarms, and UI cues.
+                        </div>
+                      </div>
+                      <select
+                        value={audioSfxEngine}
+                        onChange={(e) => updateMediaSetting('audioSfxEngine', e.target.value)}
+                        className="h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs text-obsidian-inkPrimary focus:outline-none cursor-pointer"
+                      >
+                        <option value="procedural">Procedural DSP Synthesizer (Instant 44.1kHz, Zero Latency)</option>
+                        <option value="hybrid">Hybrid (Procedural Audio + TTS Vocal Cues)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+
+            {/* TAB: APPLICATION */}
+            {activeTab === 'application' && (
+              <div className="space-y-6 max-w-2xl">
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-obsidian-inkMuted font-mono">
+                    Terminal & Shell Defaults
+                  </h4>
+                  <div className="p-4 rounded-xl bg-obsidian-surface2 border border-obsidian-hairline space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Default Shell</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">Select terminal profile spawned by ConPTY.</div>
+                      </div>
+                      <select
+                        value={terminalShell}
+                        onChange={(e) => {
+                          setTerminalShell(e.target.value);
+                          localStorage.setItem('sutra-terminal-shell', e.target.value);
+                        }}
+                        className="h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs font-mono text-obsidian-inkPrimary focus:outline-none cursor-pointer"
+                      >
+                        <option value="powershell">PowerShell</option>
+                        <option value="cmd">Command Prompt</option>
+                        <option value="bash">Git Bash</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-obsidian-inkMuted font-mono">
+                    Ambient Audio & Focus Player
+                  </h4>
+                  <div className="p-4 rounded-xl bg-obsidian-surface2 border border-obsidian-hairline space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Lo-Fi Coding Soundscapes</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">Synthesized ambient binaural alpha focus audio.</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={isMusicEnabled}
+                        onChange={(e) => setMusicEnabled(e.target.checked)}
+                        className="w-4 h-4 accent-obsidian-inkPrimary cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 pt-2 border-t border-obsidian-hairline/60">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Master Volume</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">Adjust sound volume level.</div>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={musicVolume}
+                        onChange={(e) => setMusicVolume(parseFloat(e.target.value))}
+                        className="w-32 accent-obsidian-inkPrimary cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB: APPEARANCE */}
+            {activeTab === 'appearance' && (
+              <div className="space-y-6 max-w-2xl">
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-obsidian-inkMuted font-mono">
+                    Visual Styling & Themes
+                  </h4>
+                  <div className="p-4 rounded-xl bg-obsidian-surface2 border border-obsidian-hairline space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Color Theme</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">Switch between dark obsidian and paper light mode.</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={toggleTheme}
+                        className="h-8 px-4 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs font-mono text-obsidian-inkPrimary hover:bg-obsidian-surface4 transition-colors cursor-pointer"
+                      >
+                        Current: <span className="font-semibold uppercase">{theme}</span> (Click to toggle)
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 pt-2 border-t border-obsidian-hairline/60">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Watermark Backdrop</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">Embossed hero wordmark on conversation canvas.</div>
+                      </div>
+                      <select
+                        value={watermarkStyle}
+                        onChange={(e) => {
+                          setWatermarkStyle(e.target.value);
+                          localStorage.setItem('sutra-watermark-style', e.target.value);
+                        }}
+                        className="h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs font-mono text-obsidian-inkPrimary focus:outline-none cursor-pointer"
+                      >
+                        <option value="embossed">Embossed Sutra (OpenCode)</option>
+                        <option value="minimal">Minimal Emblem</option>
+                        <option value="hidden">Hidden</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 pt-2 border-t border-obsidian-hairline/60">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Code Font Family</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">Editor and terminal monospace typeface.</div>
+                      </div>
+                      <select
+                        value={editorFont}
+                        onChange={(e) => {
+                          setEditorFont(e.target.value);
+                          localStorage.setItem('sutra-editor-font', e.target.value);
+                        }}
+                        className="h-8 px-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs font-mono text-obsidian-inkPrimary focus:outline-none cursor-pointer"
+                      >
+                        <option value="JetBrains Mono">JetBrains Mono</option>
+                        <option value="Fira Code">Fira Code</option>
+                        <option value="Menlo">Menlo / Monaco</option>
+                        <option value="Consolas">Consolas</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB: CUSTOMIZATIONS */}
+            {activeTab === 'customizations' && (
+              <div className="space-y-6 max-w-2xl">
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-obsidian-inkMuted font-mono">
+                    Custom Behavioral Instructions (.sutrarules)
+                  </h4>
+                  <div className="p-4 rounded-xl bg-obsidian-surface2 border border-obsidian-hairline space-y-3">
+                    <p className="text-xs text-obsidian-inkSecondary leading-relaxed">
+                      Custom rules written here are injected into every agent prompt, guiding coding style, library choices, and architecture rules.
+                    </p>
+                    <textarea
+                      rows={5}
+                      value={customRules}
+                      onChange={(e) => {
+                        setCustomRules(e.target.value);
+                        localStorage.setItem('sutra-custom-rules', e.target.value);
+                      }}
+                      placeholder="e.g. Always write strict TypeScript types. Use Tailwind for styling. Run tests after editing files."
+                      className="w-full p-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-xs font-mono text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-obsidian-inkMuted font-mono">
+                    Cognitive Memory Vault
+                  </h4>
+                  <div className="p-4 rounded-xl bg-obsidian-surface2 border border-obsidian-hairline flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-xs font-semibold text-obsidian-inkPrimary">7 Cognitive Memory Subsystems</div>
+                      <div className="text-[11px] text-obsidian-inkMuted">
+                        Inspect working, semantic, episodic, procedural, retrieval, parametric, and prospective memories.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleClose();
+                        setMemoryModalOpen(true);
+                      }}
+                      className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-obsidian-surface3 hover:bg-obsidian-surface4 text-obsidian-inkPrimary border border-obsidian-hairline text-xs font-mono transition-colors cursor-pointer"
+                    >
+                      <Brain className="w-3.5 h-3.5" />
+                      <span>Open Vault</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB: BROWSER */}
+            {activeTab === 'browser' && (
+              <div className="space-y-6 max-w-2xl">
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-obsidian-inkMuted font-mono">
+                    Live Web Preview & Simulation
+                  </h4>
+                  <div className="p-4 rounded-xl bg-obsidian-surface2 border border-obsidian-hairline space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Default Viewport Simulation</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">Device dimensions used when launching preview.</div>
+                      </div>
+                      <div className="flex items-center p-0.5 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline">
+                        {(['desktop', 'tablet', 'mobile'] as const).map((vp) => (
+                          <button
+                            key={vp}
+                            type="button"
+                            onClick={() => setPreviewViewport(vp)}
+                            className={`px-3 py-1 rounded-md text-xs font-medium capitalize transition-colors cursor-pointer ${
+                              previewViewport === vp
+                                ? 'bg-obsidian-inkPrimary text-obsidian-canvas font-semibold shadow-xs'
+                                : 'text-obsidian-inkMuted hover:text-obsidian-inkPrimary'
+                            }`}
+                          >
+                            {vp}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 pt-2 border-t border-obsidian-hairline/60">
+                      <div>
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary">Visual Element Inspector</div>
+                        <div className="text-[11px] text-obsidian-inkMuted">
+                          Allow clicking elements in the live preview to dispatch targeted modification prompts.
+                        </div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={elementInspectorEnabled}
+                        onChange={(e) => {
+                          setElementInspectorEnabled(e.target.checked);
+                          localStorage.setItem('sutra-element-inspector', e.target.checked ? '1' : '0');
+                        }}
+                        className="w-4 h-4 accent-obsidian-inkPrimary cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between p-3 rounded-lg border border-obsidian-hairline bg-obsidian-surface1">
+                      <div className="space-y-0.5">
+                        <div className="text-xs font-semibold text-obsidian-inkPrimary flex items-center gap-2">
+                          <img src="/assets/sutra-pet.jpg" alt="Pet" className="w-4 h-4 rounded-full object-cover" />
+                          <span>SUTRA Cyber-Cat AI Pet Mascot</span>
+                        </div>
+                        <div className="text-[11px] text-obsidian-inkMuted">
+                          Display the animated companion pet with live status, developer insights, and video animations.
+                        </div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={petEnabled}
+                        onChange={(e) => {
+                          setPetEnabled(e.target.checked);
+                          localStorage.setItem('sutra-pet-visible', String(e.target.checked));
+                          window.dispatchEvent(new CustomEvent('sutra-pet-toggle', { detail: e.target.checked }));
+                        }}
+                        className="w-4 h-4 accent-obsidian-inkPrimary cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

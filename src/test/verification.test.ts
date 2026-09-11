@@ -131,4 +131,27 @@ describe('runWorkspaceVerification', () => {
     expect(report.checks).toEqual([]);
     expect(report.allPassed).toBe(true);
   });
+
+  it('executes instant fast verification when only HTML/CSS/JSON are mutated', async () => {
+    const root = makeWorkspace({
+      'package.json': JSON.stringify({ name: 'heavy', version: '1.0.0', scripts: { typecheck: 'node heavy.js' } }),
+      'heavy.js': 'setTimeout(() => process.exit(0), 10000);',
+      'index.html': '<!DOCTYPE html><html><head><title>Mini Minecraft</title></head><body></body></html>',
+      'style.css': 'body { margin: 0; }',
+      'config.json': '{"theme":"dark"}',
+    });
+    const started = Date.now();
+    const report = await runWorkspaceVerification({
+      workspaceRoot: root,
+      filesChanged: 3,
+      mutatedFiles: ['index.html', 'style.css', 'config.json'],
+      permissionMode: 'full',
+    });
+    const elapsed = Date.now() - started;
+    expect(elapsed).toBeLessThan(1500);
+    expect(report.allPassed).toBe(true);
+    expect(report.checks.some((c) => c.name.startsWith('html:'))).toBe(true);
+    expect(report.checks.some((c) => c.name.startsWith('css:'))).toBe(true);
+    expect(report.checks.some((c) => c.name.startsWith('syntax:'))).toBe(true);
+  });
 });

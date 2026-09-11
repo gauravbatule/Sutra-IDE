@@ -49,7 +49,7 @@ export const MobileApp: React.FC = () => {
 
         <div className="flex items-center gap-2">
           {pendingApprovals.length > 0 && (
-            <span className="px-2 py-0.5 rounded-full bg-white/[0.08] text-obsidian-inkPrimary text-[10px] font-mono animate-pulse">
+            <span className="px-2 py-0.5 rounded-full bg-obsidian-surface2 text-obsidian-inkPrimary text-[10px] font-mono animate-pulse">
               {pendingApprovals.length} Approval
             </span>
           )}
@@ -89,7 +89,7 @@ export const MobileApp: React.FC = () => {
           <ShieldAlert className="w-5 h-5" />
           <span>Approvals</span>
           {pendingApprovals.length > 0 && (
-            <span className="absolute top-0 right-4 w-2 h-2 rounded-full bg-white/70" />
+            <span className="absolute top-0 right-4 w-2 h-2 rounded-full bg-obsidian-inkPrimary" />
           )}
         </button>
 

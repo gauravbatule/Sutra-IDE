@@ -35,10 +35,41 @@ const SETUP_OPTIONS = [
 ] as const;
 
 export const SetupGate: React.FC<SetupGateProps> = ({ onRefresh, onSkip }) => {
-  const { setSettingsOpen } = useIDEStore();
+  const { setSettingsOpen, openSettingsWithTarget } = useIDEStore();
+
+  const handleOptionClick = (optionId: string) => {
+    if (optionId === 'cookie') {
+      openSettingsWithTarget({
+        tab: 'providers',
+        category: 'web-cookie',
+        providerId: 'chatgpt-web',
+        authMode: 'cookie',
+      });
+    } else if (optionId === 'google') {
+      openSettingsWithTarget({
+        tab: 'providers',
+        category: 'frontier',
+        providerId: 'google',
+        authMode: 'api-key',
+      });
+    } else if (optionId === 'nim') {
+      openSettingsWithTarget({
+        tab: 'providers',
+        category: 'frontier',
+        providerId: 'nvidia-nim',
+        authMode: 'api-key',
+      });
+    } else {
+      openSettingsWithTarget({
+        tab: 'providers',
+        category: 'frontier',
+        authMode: 'api-key',
+      });
+    }
+  };
 
   return (
-    <div className="fixed inset-0 z-40 bg-obsidian-canvas flex items-center justify-center p-6 select-none">
+    <div className="fixed inset-0 z-50 bg-black flex items-center justify-center p-6 select-none">
       <div className="w-full max-w-xl flex flex-col items-center text-center">
         {/* Wordmark */}
         <div className="text-obsidian-inkPrimary font-mono uppercase tracking-[0.4em] text-sm">
@@ -60,7 +91,7 @@ export const SetupGate: React.FC<SetupGateProps> = ({ onRefresh, onSkip }) => {
             return (
               <button
                 key={option.id}
-                onClick={() => setSettingsOpen(true)}
+                onClick={() => handleOptionClick(option.id)}
                 className="p-4 bg-obsidian-surface1 hover:bg-obsidian-surface2 border border-obsidian-hairline hover:border-obsidian-surface4 rounded-xl flex items-center gap-3 text-left transition-colors cursor-pointer"
               >
                 <div className="w-8 h-8 rounded-lg bg-obsidian-surface2 border border-obsidian-hairline flex items-center justify-center text-obsidian-inkSecondary shrink-0">
@@ -79,7 +110,7 @@ export const SetupGate: React.FC<SetupGateProps> = ({ onRefresh, onSkip }) => {
         <div className="mt-10 flex items-center gap-3">
           <button
             onClick={() => setSettingsOpen(true)}
-            className="px-5 py-2 bg-white hover:bg-obsidian-accentHover text-black text-xs font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
+            className="px-5 py-2 bg-obsidian-accent hover:bg-obsidian-accentHover text-obsidian-inkInverse text-xs font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
           >
             Open Providers &amp; Keys
             <ArrowRight className="w-3.5 h-3.5" />

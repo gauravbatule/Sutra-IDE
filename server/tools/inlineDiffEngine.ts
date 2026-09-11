@@ -33,18 +33,21 @@ export class InlineDiffEngine {
    * Generate structured diff between old and new content
    */
   generateDiff(filePath: string, oldContent: string, newContent: string): InlineDiff {
+    const normOld = (oldContent ?? '').replace(/\r\n/g, '\n');
+    const normNew = (newContent ?? '').replace(/\r\n/g, '\n');
     const patches = diff.structuredPatch(
       filePath,
       filePath,
-      oldContent,
-      newContent,
+      normOld,
+      normNew,
       'Original',
       'Modified'
     );
 
     const hunks: DiffHunk[] = patches.hunks.map((hunk) => {
       const changes: DiffChange[] = [];
-      let currentLineNumber = hunk.oldStart;
+      let oldLineNumber = hunk.oldStart;
+      let newLineNumber = hunk.newStart;
 
       hunk.lines.forEach((line) => {
         const type = line[0];
@@ -54,22 +57,24 @@ export class InlineDiffEngine {
           changes.push({
             type: 'add',
             content,
-            lineNumber: currentLineNumber,
+            lineNumber: newLineNumber,
           });
+          newLineNumber++;
         } else if (type === '-') {
           changes.push({
             type: 'remove',
             content,
-            lineNumber: currentLineNumber,
+            lineNumber: oldLineNumber,
           });
-          currentLineNumber++;
+          oldLineNumber++;
         } else {
           changes.push({
             type: 'context',
             content,
-            lineNumber: currentLineNumber,
+            lineNumber: newLineNumber,
           });
-          currentLineNumber++;
+          oldLineNumber++;
+          newLineNumber++;
         }
       });
 
@@ -170,11 +175,15 @@ export class InlineDiffEngine {
    * Apply diff to original content
    */
   applyDiff(originalContent: string, unifiedDiff: string): string {
-    const patches = diff.parsePatch(unifiedDiff);
+    const isCRLF = (originalContent || '').includes('\r\n');
+    const normOriginal = (originalContent ?? '').replace(/\r\n/g, '\n');
+    const normDiff = (unifiedDiff ?? '').replace(/\r\n/g, '\n');
+    const patches = diff.parsePatch(normDiff);
     if (patches.length === 0) return originalContent;
 
-    const result = diff.applyPatch(originalContent, patches[0]);
-    return typeof result === 'string' ? result : originalContent;
+    const result = diff.applyPatch(normOriginal, patches[0]);
+    if (typeof result !== 'string') return originalContent;
+    return isCRLF ? result.replace(/\n/g, '\r\n') : result;
   }
 
   /**
@@ -185,4 +194,75 @@ export class InlineDiffEngine {
   }
 }
 
+export interface AntiStubbingResult {
+  hasStub: boolean;
+  stubMarkers: string[];
+  warning?: string;
+}
+
+/**
+ * Detects lazy LLM placeholder markers (e.g. // ... existing code ...) that destroy real business logic
+ */
+export function detectStubbingMarkers(content: string): AntiStubbingResult {
+  if (!content || typeof content !== 'string') return { hasStub: false, stubMarkers: [] };
+
+  const stubPatterns = [
+    /\/\/\s*\.\.\.\s*existing\s+code\b/i,
+    /\/\/\s*\.\.\.\s*rest\s+of\s+code\b/i,
+    /\/\/\s*\.\.\.\s*remain(?:s|ing)?\s+unchanged\b/i,
+    /\/\/\s*\.\.\.\s*previous\s+code\b/i,
+    /\/\*\s*\.\.\.\s*existing\s+code[\s\S]*?\*\//i,
+    /\/\*\s*implement\s+(?:the\s+)?rest[\s\S]*?\*\//i,
+    /\/\/\s*TODO:\s*(?:add|implement)\s+(?:rest|remaining|the\s+rest)\b/i,
+    /\/\/\s*keep\s+existing\s+(?:implementation|code|methods)\b/i,
+    /\/\*\s*\.\.\.\s*\*\//,
+    /\/\/\s*\.\.\.\s*same\s+as\s+before\b/i,
+  ];
+
+  const markers: string[] = [];
+  for (const pattern of stubPatterns) {
+    const match = content.match(pattern);
+    if (match) {
+      markers.push(match[0]);
+    }
+  }
+
+  if (markers.length > 0) {
+    return {
+      hasStub: true,
+      stubMarkers: markers,
+      warning: `Destructive stub placeholder detected: "${markers.join('", "')}". Provide complete implementations without lazy placeholders.`,
+    };
+  }
+
+  return { hasStub: false, stubMarkers: [] };
+}
+
+/**
+ * Validates that an edit is non-destructive and doesn't accidentally erase code
+ */
+export function validateNonDestructiveEdit(oldContent: string, newContent: string): {
+  safe: boolean;
+  reason?: string;
+} {
+  const stubCheck = detectStubbingMarkers(newContent);
+  if (stubCheck.hasStub) {
+    return { safe: false, reason: stubCheck.warning };
+  }
+
+  const oldLines = oldContent.split('\n');
+  const newLines = newContent.split('\n');
+  if (oldLines.length > 40 && newLines.length < oldLines.length * 0.25) {
+    if (newContent.length < 300 && oldContent.length > 1500) {
+      return {
+        safe: false,
+        reason: `Destructive truncation alert: replacing ${oldLines.length} lines with ${newLines.length} lines. Use surgical line-range edits instead of truncating existing code.`,
+      };
+    }
+  }
+
+  return { safe: true };
+}
+
 export const inlineDiffEngine = new InlineDiffEngine();
+

@@ -20,12 +20,32 @@ export interface WSPacket<T = any> {
 }
 
 export function createPacket<T>(channel: WSChannel, type: string, payload: T): string {
-  return JSON.stringify({
-    channel,
-    type,
-    payload,
-    timestamp: Date.now(),
-  });
+  try {
+    return JSON.stringify({
+      channel,
+      type,
+      payload,
+      timestamp: Date.now(),
+    });
+  } catch {
+    const seen = new WeakSet();
+    return JSON.stringify(
+      {
+        channel,
+        type,
+        payload,
+        timestamp: Date.now(),
+      },
+      (_key, value) => {
+        if (typeof value === 'bigint') return value.toString();
+        if (typeof value === 'object' && value !== null) {
+          if (seen.has(value)) return '[Circular]';
+          seen.add(value);
+        }
+        return value;
+      }
+    );
+  }
 }
 
 export function parsePacket(raw: string): WSPacket | null {

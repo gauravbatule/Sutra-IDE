@@ -805,7 +805,11 @@ export class ProviderAuthHandler {
               }
               testUrl = `${knownBase.replace(/\/$/, '')}/models`;
             }
-            headers['Authorization'] = `Bearer ${key}`;
+            const cleanKey = key.trim().replace(/^["']|["']$/g, '');
+            headers['Authorization'] = `Bearer ${cleanKey}`;
+            if (providerId === 'sarvam' || testUrl.includes('sarvam')) {
+              headers['api-subscription-key'] = cleanKey;
+            }
           }
         }
 
@@ -841,3 +845,25 @@ export class ProviderAuthHandler {
 }
 
 export const providerAuthHandler = new ProviderAuthHandler();
+
+export function normalizeCookieCredential(providerId: string, rawCookie: string): string {
+  const norm = providerAuthHandler.normalizeCookies(rawCookie);
+  if (!norm.includes('=')) {
+    if (providerId.includes('chatgpt') || providerId === 'openai') {
+      return `__Secure-next-auth.session-token=${rawCookie.trim()}`;
+    }
+  }
+  return norm || rawCookie;
+}
+
+export function isValidCookieFormat(providerId: string, rawCookie: string): boolean {
+  if (!rawCookie || typeof rawCookie !== 'string') return false;
+  const trimmed = rawCookie.trim();
+  if (trimmed.length < 10) return false;
+  const rule = WEB_COOKIE_CHECKS.find((r) => r.test(providerId));
+  if (!rule) return trimmed.includes('=') || trimmed.length >= 25;
+  const lower = trimmed.toLowerCase();
+  const hasToken = rule.tokens.some((t) => lower.includes(t.toLowerCase()));
+  if (hasToken) return true;
+  return Boolean(rule.allowLongRaw && trimmed.length >= 25);
+}

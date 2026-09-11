@@ -1,30 +1,55 @@
 import { create } from 'zustand';
-import { OpenFileTab, OmniModel, SubagentState, PermissionLevel, ToolCallPayload, OmniAgentMessage, ProjectAsset, PendingAgentQuestion, ReviewDiffEntry, VerificationReport } from '../types/ide.js';
+import { OpenFileTab, SutraModel, SubagentState, PermissionLevel, HarnessMode, ToolCallPayload, SutraAgentMessage, ProjectAsset, PendingAgentQuestion, ReviewDiffEntry, VerificationReport, ArtifactItem } from '../types/ide.js';
+import { audioSynth, MusicTrackId } from '../utils/audioSynth.js';
 
 interface IDEState {
   // Tabs & File Editor
   openTabs: OpenFileTab[];
   activeTabPath: string | null;
-  activeSidebar: 'explorer' | 'search' | 'swarm' | 'vault' | 'media' | 'git' | 'mobile' | 'settings';
+  activeSidebar: 'explorer' | 'search' | 'swarm' | 'vault' | 'media' | 'git' | 'mobile' | 'settings' | 'artifacts' | 'outline';
   isTerminalOpen: boolean;
   isPreviewOpen: boolean;
   isSidebarOpen: boolean;
+  /** IDE assistant panel visibility, kept across restarts. */
   isAgentPanelOpen: boolean;
+  /** Manager-mode conversation sidebar visibility (persisted to localStorage). */
+  isManagerSidebarOpen: boolean;
   agentPanelWidth: 'compact' | 'normal' | 'wide' | 'expanded';
   previewViewport: 'desktop' | 'tablet' | 'mobile';
+  previewLayout: 'full' | 'split';
+  activeCenterView: 'editor' | 'preview';
   previewUrl: string;
+  sessionPreviewUrls: Record<string, string>;
+  setPreviewLayout: (layout: 'full' | 'split') => void;
+  togglePreviewLayout: () => void;
+  setActiveCenterView: (view: 'editor' | 'preview') => void;
+
+  // Workspace Path & Storage
+  currentWorkspacePath: string;
+  currentWorkspaceName: string;
+  setCurrentWorkspacePath: (path: string) => void;
+  fetchCurrentWorkspace: () => Promise<string>;
+  switchWorkspace: (newPath: string) => Promise<{ success: boolean; error?: string }>;
 
   // Manager Mode & Session Pins
   uiMode: 'manager' | 'ide';
   pinnedSessionIds: string[];
 
   // AI & Models
-  activeModel: OmniModel | null;
-  availableModels: OmniModel[];
+  activeModel: SutraModel | null;
+  availableModels: SutraModel[];
   permissionLevel: PermissionLevel;
-  agentMessages: OmniAgentMessage[];
+  harnessMode: HarnessMode;
+  agentMessages: SutraAgentMessage[];
   isAgentGenerating: boolean;
   currentAgentThinking: string;
+  /** True when the live thinking trace is included in the next provider call.
+   *  Toggling off saves context budget at the cost of a noisier run; the
+   *  user can flip it mid-stream and the change applies on the next round. */
+  sendThinkingToModel: boolean;
+  /** Most recent streaming error (if any) so the UI can surface it next to
+   *  the reasoning trace instead of dropping it on the floor. */
+  lastThinkingError: string | null;
 
   // Subagents Swarm
   subagents: SubagentState[];
@@ -56,6 +81,10 @@ interface IDEState {
   // Media Assets
   assets: ProjectAsset[];
 
+  // File Tree Refresh Signal
+  fileTreeVersion: number;
+  triggerFileTreeRefresh: () => void;
+
   // Editor Telemetry & Diagnostics (Cursor Parity)
   cursorPosition: { line: number; column: number } | null;
   selectedText: string;
@@ -64,13 +93,35 @@ interface IDEState {
   activeFileDiagnostics: Array<{ message: string; severity: number; startLineNumber: number; endLineNumber: number }>;
   inlineDiffState: { path: string; originalContent: string; proposedContent: string; startLine?: number; endLine?: number } | null;
 
+  // Composer Draft Injection
+  composerDraft: string;
+  setComposerDraft: (draft: string) => void;
+
   // Modals & Panels
   isCommandPaletteOpen: boolean;
+  isFolderPickerOpen: boolean;
   isQRPairingOpen: boolean;
   isVaultModalOpen: boolean;
   isAssetStudioOpen: boolean;
   isSettingsOpen: boolean;
   isGuideOpen: boolean;
+  isCoffeeModalOpen: boolean;
+  setCoffeeModalOpen: (open: boolean) => void;
+  isSkillsModalOpen: boolean;
+  setSkillsModalOpen: (open: boolean) => void;
+  isMemoryModalOpen: boolean;
+  setMemoryModalOpen: (open: boolean) => void;
+
+  // Lo-Fi Coding Music & Ambient Player
+  isMusicEnabled: boolean;
+  isMusicPlaying: boolean;
+  musicVolume: number;
+  musicTrack: MusicTrackId;
+  setMusicEnabled: (enabled: boolean) => void;
+  setMusicPlaying: (playing: boolean) => void;
+  setMusicVolume: (volume: number) => void;
+  setMusicTrack: (track: MusicTrackId) => void;
+  toggleMusicPlaying: () => void;
 
   // Actions
   openFile: (file: { path: string; name: string; content: string; language?: string }) => void;
@@ -101,23 +152,33 @@ interface IDEState {
   togglePreview: () => void;
   toggleSidebar: () => void;
   toggleAgentPanel: () => void;
+  setAgentPanelOpen: (isOpen: boolean) => void;
+  toggleManagerSidebar: () => void;
+  setManagerSidebarOpen: (isOpen: boolean) => void;
   setAgentPanelWidth: (width: 'compact' | 'normal' | 'wide' | 'expanded') => void;
   setPreviewViewport: (vp: 'desktop' | 'tablet' | 'mobile') => void;
-  setPreviewUrl: (url: string) => void;
+  setPreviewUrl: (url: string, sessionId?: string) => void;
+  getPreviewUrlForSession: (sessionId?: string) => string;
+  setIsPreviewOpen: (open: boolean) => void;
 
   setUiMode: (mode: 'manager' | 'ide') => void;
   togglePinSession: (id: string) => void;
 
-  setActiveModel: (model: OmniModel) => void;
-  setAvailableModels: (models: OmniModel[]) => void;
+  setActiveModel: (model: SutraModel) => void;
+  setAvailableModels: (models: SutraModel[]) => void;
+  refreshAvailableModels: () => Promise<void>;
   setPermissionLevel: (level: PermissionLevel) => void;
-  addAgentMessage: (msg: OmniAgentMessage) => void;
+  setHarnessMode: (mode: HarnessMode) => void;
+  addAgentMessage: (msg: SutraAgentMessage) => void;
   updateLastMessageContent: (delta: string) => void;
   resetLastMessageContent: () => void;
   addToolCallsToLastMessage: (toolCalls: ToolCallPayload[]) => void;
   updateToolCallResult: (id: string, tool: string, result: any) => void;
   updateToolCallError: (id: string, tool: string, error: string) => void;
-  updateAgentThinking: (thinking: string) => void;
+  updateAgentThinking: (thinking: string, append?: boolean) => void;
+  appendAgentThinking: (delta: string) => void;
+  setSendThinkingToModel: (send: boolean) => void;
+  setLastThinkingError: (error: string | null) => void;
   setIsAgentGenerating: (generating: boolean) => void;
 
   setSubagents: (subagents: SubagentState[]) => void;
@@ -130,11 +191,19 @@ interface IDEState {
   clearReviewDiffs: () => void;
 
   setCommandPaletteOpen: (open: boolean) => void;
+  setFolderPickerOpen: (open: boolean) => void;
   setQRPairingOpen: (open: boolean) => void;
   setVaultModalOpen: (open: boolean) => void;
   setAssetStudioOpen: (open: boolean) => void;
+  settingsTarget: { tab?: string; providerId?: string; category?: string; authMode?: 'api-key' | 'cookie' | 'oauth' } | null;
   setSettingsOpen: (open: boolean) => void;
+  openSettingsWithTarget: (target: { tab?: string; providerId?: string; category?: string; authMode?: 'api-key' | 'cookie' | 'oauth' }) => void;
+  setSettingsTarget: (target: { tab?: string; providerId?: string; category?: string; authMode?: 'api-key' | 'cookie' | 'oauth' } | null) => void;
   setGuideOpen: (open: boolean) => void;
+  activeChatSessionId: string;
+  setActiveChatSessionId: (id: string) => void;
+  activeArtifactModal: ArtifactItem | null;
+  setActiveArtifactModal: (artifact: ArtifactItem | null) => void;
 }
 
 export const useIDEStore = create<IDEState>((set, get) => ({
@@ -144,26 +213,89 @@ export const useIDEStore = create<IDEState>((set, get) => ({
   isTerminalOpen: false,
   isPreviewOpen: false,
   isSidebarOpen: true,
-  isAgentPanelOpen: true,
+  isAgentPanelOpen: (() => {
+    try {
+      return localStorage.getItem('sutra-ide-agent-panel') !== '0';
+    } catch {
+      return true;
+    }
+  })(),
+  // Manager-mode conversation sidebar. Kept in the store (not component state)
+  // so the header slot and the panel read one source of truth; persisted the
+  // same way as the IDE sidebar preference.
+  isManagerSidebarOpen: (() => {
+    try {
+      return localStorage.getItem('sutra-manager-sidebar') !== '0';
+    } catch {
+      return true;
+    }
+  })(),
   agentPanelWidth: 'normal',
   previewViewport: 'desktop',
+  previewLayout: 'full',
+  activeCenterView: 'preview',
   previewUrl: '/preview',
+  sessionPreviewUrls: {},
+
+  // Workspace Path & Storage
+  currentWorkspacePath: '',
+  currentWorkspaceName: '',
+  setCurrentWorkspacePath: (currentWorkspacePath) => {
+    const currentWorkspaceName = extractWorkspaceName(currentWorkspacePath);
+    set({ currentWorkspacePath, currentWorkspaceName });
+  },
+  fetchCurrentWorkspace: async () => {
+    try {
+      const res = await fetch('/api/fs/workspace');
+      if (res.ok) {
+        const data = await res.json();
+        const wsPath = typeof data.workspaceRoot === 'string' ? data.workspaceRoot : typeof data.path === 'string' ? data.path : '';
+        const wsName = (typeof data.name === 'string' && data.name) ? data.name : extractWorkspaceName(wsPath);
+        if (wsPath) {
+          set({ currentWorkspacePath: wsPath, currentWorkspaceName: wsName || extractWorkspaceName(wsPath) });
+          return wsPath;
+        }
+      }
+    } catch {
+      // Fallback gracefully
+    }
+    return get().currentWorkspacePath;
+  },
+  switchWorkspace: async (newPath: string) => {
+    try {
+      const res = await fetch('/api/fs/set-workspace', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: newPath }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const targetPath = data.workspacePath || newPath;
+        const targetName = extractWorkspaceName(targetPath);
+        set((state) => ({
+          currentWorkspacePath: targetPath,
+          currentWorkspaceName: targetName,
+          fileTreeVersion: state.fileTreeVersion + 1,
+          openTabs: [],
+          activeTabPath: null,
+        }));
+        return { success: true };
+      }
+      return { success: false, error: data.error || 'Failed to switch workspace' };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Network error switching workspace' };
+    }
+  },
+
+  isFolderPickerOpen: false,
 
   uiMode: hydrateUiMode(),
   pinnedSessionIds: hydrateStoredStringArray('sutra-pinned-sessions'),
 
-  activeModel: {
-    id: 'auto',
-    name: 'SUTRA Auto',
-    provider: 'sutra',
-    contextWindow: 128000,
-    supportsVision: true,
-    supportsTools: true,
-    costPer1kTokens: { input: 0, output: 0 },
-    description: 'SUTRA automatic multi-provider routing gateway.',
-  },
+  activeModel: hydrateActiveModel(),
   availableModels: [],
   permissionLevel: hydratePermissionMode(),
+  harnessMode: hydrateHarnessMode(),
   agentMessages: [
     {
       id: 'msg-welcome',
@@ -174,6 +306,10 @@ export const useIDEStore = create<IDEState>((set, get) => ({
   ],
   isAgentGenerating: false,
   currentAgentThinking: '',
+  // Default ON — most providers want the trace for reasoning quality. The
+  // user can flip it off from the reasoning panel when context is tight.
+  sendThinkingToModel: true,
+  lastThinkingError: null,
 
   subagents: [],
   subagentsAutoOpened: false,
@@ -200,6 +336,8 @@ export const useIDEStore = create<IDEState>((set, get) => ({
   visibleRange: null,
   activeFileDiagnostics: [],
   inlineDiffState: null,
+  composerDraft: '',
+  setComposerDraft: (composerDraft) => set({ composerDraft }),
 
   setEditorTelemetry: (telemetry) => set((state) => ({ ...state, ...telemetry })),
   setInlineDiff: (inlineDiffState) => set({ inlineDiffState }),
@@ -219,6 +357,27 @@ export const useIDEStore = create<IDEState>((set, get) => ({
   isAssetStudioOpen: false,
   isSettingsOpen: false,
   isGuideOpen: false,
+  isCoffeeModalOpen: false,
+  isSkillsModalOpen: false,
+  setSkillsModalOpen: (open) => set({ isSkillsModalOpen: open }),
+  isMemoryModalOpen: false,
+  setMemoryModalOpen: (open) => set({ isMemoryModalOpen: open }),
+  activeChatSessionId: '',
+  setActiveChatSessionId: (id) => {
+    const sessionUrl = get().sessionPreviewUrls[id];
+    set({
+      activeChatSessionId: id,
+      ...(sessionUrl ? { previewUrl: sessionUrl } : {}),
+    });
+  },
+  activeArtifactModal: null,
+  isMusicEnabled: true,
+  isMusicPlaying: false,
+  musicVolume: 0.55,
+  musicTrack: 'binaural_alpha',
+
+  fileTreeVersion: 0,
+  triggerFileTreeRefresh: () => set((state) => ({ fileTreeVersion: state.fileTreeVersion + 1 })),
 
   openFile: (file) =>
     set((state) => {
@@ -236,25 +395,48 @@ export const useIDEStore = create<IDEState>((set, get) => ({
       return {
         openTabs: [...state.openTabs, newTab],
         activeTabPath: file.path,
+        activeCenterView: 'editor',
       };
     }),
 
-  openFilePath: async (filePath: string) => {
+  openFilePath: async (rawPath: string) => {
+    if (!rawPath || typeof rawPath !== 'string') return;
+    let cleanPath = rawPath.trim().replace(/^file:\/\/\/?/i, '');
+    let targetLine: number | null = null;
+    const lineMatch = cleanPath.match(/(?::(\d+)(?::\d+)?|#L(\d+))$/);
+    if (lineMatch) {
+      targetLine = parseInt(lineMatch[1] || lineMatch[2], 10);
+      cleanPath = cleanPath.replace(/(?::\d+(?::\d+)?|#L\d+)$/, '');
+    }
+    cleanPath = cleanPath.replace(/\\/g, '/');
+
     const state = useIDEStore.getState();
-    const existing = state.openTabs.find((t) => t.path === filePath);
+    const existing = state.openTabs.find((t) => t.path.replace(/\\/g, '/') === cleanPath);
     if (existing) {
-      set({ activeTabPath: filePath });
+      set({ activeTabPath: existing.path, activeCenterView: 'editor' });
+      if (targetLine && targetLine > 0) {
+        state.setEditorTelemetry({ cursorPosition: { line: targetLine, column: 1 } });
+      }
       return;
     }
     try {
-      const res = await fetch(`/api/fs/read?path=${encodeURIComponent(filePath)}`);
+      const res = await fetch(`/api/fs/read?path=${encodeURIComponent(cleanPath)}`);
+      if (!res.ok) {
+        console.warn(`File does not exist or cannot be read: ${cleanPath} (HTTP ${res.status})`);
+        return;
+      }
       const data = await res.json();
-      const fileName = filePath.split(/[/\\]/).pop() || filePath;
+      if (typeof data.content !== 'string') return;
+      const fileName = cleanPath.split('/').pop() || cleanPath;
       state.openFile({
-        path: filePath,
+        path: cleanPath,
         name: fileName,
-        content: data.content || '',
+        content: data.content,
       });
+      set({ activeCenterView: 'editor' });
+      if (targetLine && targetLine > 0) {
+        state.setEditorTelemetry({ cursorPosition: { line: targetLine, column: 1 } });
+      }
     } catch (err) {
       console.error('Failed to open file path:', err);
     }
@@ -294,7 +476,7 @@ export const useIDEStore = create<IDEState>((set, get) => ({
       return { openTabs: tabs };
     }),
 
-  setActiveTab: (path) => set({ activeTabPath: path }),
+  setActiveTab: (path) => set({ activeTabPath: path, activeCenterView: 'editor' }),
 
   updateTabContent: (path, content) =>
     set((state) => ({
@@ -357,12 +539,85 @@ export const useIDEStore = create<IDEState>((set, get) => ({
 
   setActiveSidebar: (sidebar) => set({ activeSidebar: sidebar }),
   toggleTerminal: () => set((state) => ({ isTerminalOpen: !state.isTerminalOpen })),
-  togglePreview: () => set((state) => ({ isPreviewOpen: !state.isPreviewOpen })),
+  togglePreview: () =>
+    set((state) => {
+      const nextOpen = !state.isPreviewOpen;
+      return {
+        isPreviewOpen: nextOpen,
+        previewLayout: 'full',
+        ...(nextOpen ? { activeCenterView: 'preview' } : { activeCenterView: 'editor' }),
+      };
+    }),
   toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
-  toggleAgentPanel: () => set((state) => ({ isAgentPanelOpen: !state.isAgentPanelOpen })),
+  toggleAgentPanel: () =>
+    set((state) => {
+      const isAgentPanelOpen = !state.isAgentPanelOpen;
+      try {
+        localStorage.setItem('sutra-ide-agent-panel', isAgentPanelOpen ? '1' : '0');
+      } catch {
+        // Storage may be unavailable; preserve the session choice regardless.
+      }
+      return { isAgentPanelOpen };
+    }),
+  setAgentPanelOpen: (isAgentPanelOpen) => {
+    try {
+      localStorage.setItem('sutra-ide-agent-panel', isAgentPanelOpen ? '1' : '0');
+    } catch {
+      // Storage may be unavailable; preserve the session choice regardless.
+    }
+    set({ isAgentPanelOpen });
+  },
+  toggleManagerSidebar: () =>
+    set((state) => {
+      const next = !state.isManagerSidebarOpen;
+      try {
+        localStorage.setItem('sutra-manager-sidebar', next ? '1' : '0');
+      } catch {
+        // Storage unavailable — the choice still applies for this session
+      }
+      return { isManagerSidebarOpen: next };
+    }),
+  setManagerSidebarOpen: (isManagerSidebarOpen) => {
+    try {
+      localStorage.setItem('sutra-manager-sidebar', isManagerSidebarOpen ? '1' : '0');
+    } catch {
+      // Storage unavailable
+    }
+    set({ isManagerSidebarOpen });
+  },
   setAgentPanelWidth: (agentPanelWidth) => set({ agentPanelWidth }),
   setPreviewViewport: (previewViewport) => set({ previewViewport }),
-  setPreviewUrl: (previewUrl) => set({ previewUrl }),
+  setPreviewLayout: (previewLayout) => set({ previewLayout }),
+  togglePreviewLayout: () => set((state) => ({ previewLayout: state.previewLayout === 'full' ? 'split' : 'full' })),
+  setActiveCenterView: (activeCenterView) => set({ activeCenterView }),
+  setPreviewUrl: (previewUrl, sessionId) => {
+    // Sanitize any foreign port 8081 (Antigravity proxy) back to /workspace/index.html
+    const cleanUrl = previewUrl && previewUrl.includes(':8081') ? '/workspace/index.html' : previewUrl;
+    const targetSession = sessionId || get().activeChatSessionId;
+    if (targetSession) {
+      set((state) => ({
+        sessionPreviewUrls: { ...state.sessionPreviewUrls, [targetSession]: cleanUrl },
+        ...(sessionId && sessionId !== state.activeChatSessionId ? {} : { previewUrl: cleanUrl }),
+      }));
+    } else {
+      set({ previewUrl: cleanUrl });
+    }
+  },
+  getPreviewUrlForSession: (sessionId) => {
+    const state = get();
+    if (sessionId && state.sessionPreviewUrls[sessionId]) {
+      const url = state.sessionPreviewUrls[sessionId];
+      return url.includes(':8081') ? '/workspace/index.html' : url;
+    }
+    const current = state.previewUrl || '/preview';
+    return current.includes(':8081') ? '/workspace/index.html' : current;
+  },
+  setIsPreviewOpen: (isPreviewOpen) =>
+    set({
+      isPreviewOpen,
+      previewLayout: 'full',
+      ...(isPreviewOpen ? { activeCenterView: 'preview' } : { activeCenterView: 'editor' }),
+    }),
 
   setUiMode: (uiMode) => {
     try {
@@ -385,8 +640,37 @@ export const useIDEStore = create<IDEState>((set, get) => ({
       return { pinnedSessionIds };
     }),
 
-  setActiveModel: (activeModel) => set({ activeModel }),
+  setActiveModel: (activeModel) => {
+    try {
+      localStorage.setItem('sutra-active-model', JSON.stringify(activeModel));
+    } catch {
+      // Best-effort persistence
+    }
+    fetch('/api/models/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modelId: activeModel.id,
+        provider: activeModel.provider,
+        fullId: `${activeModel.provider}:${activeModel.id}`,
+      }),
+    }).catch(() => undefined);
+    set({ activeModel });
+  },
   setAvailableModels: (availableModels) => set({ availableModels }),
+  refreshAvailableModels: async () => {
+    try {
+      const res = await fetch('/api/models');
+      if (!res.ok) return;
+      const data = await res.json();
+      const models = data?.models || [];
+      if (Array.isArray(models) && models.length > 0) {
+        set({ availableModels: models });
+      }
+    } catch {
+      // Storage/network unavailable
+    }
+  },
   setPermissionLevel: (permissionLevel) => {
     try {
       localStorage.setItem('sutra-permission-mode', permissionLevel);
@@ -394,6 +678,14 @@ export const useIDEStore = create<IDEState>((set, get) => ({
       // Storage unavailable — the mode still applies for this session
     }
     set({ permissionLevel });
+  },
+  setHarnessMode: (harnessMode) => {
+    try {
+      localStorage.setItem('sutra-harness-mode', harnessMode);
+    } catch {
+      // Storage unavailable
+    }
+    set({ harnessMode });
   },
   addAgentMessage: (msg) => set((state) => ({ agentMessages: [...state.agentMessages, msg] })),
   updateLastMessageContent: (delta) =>
@@ -459,7 +751,14 @@ export const useIDEStore = create<IDEState>((set, get) => ({
         agentMessages: [...state.agentMessages.slice(0, -1), { ...last, toolCalls: updatedCalls }],
       };
     }),
-  updateAgentThinking: (thinking) => set({ currentAgentThinking: thinking }),
+  appendAgentThinking: (delta) =>
+    set((state) => ({ currentAgentThinking: (state.currentAgentThinking || '') + delta })),
+  updateAgentThinking: (thinking, append = false) =>
+    set((state) => ({
+      currentAgentThinking: append ? (state.currentAgentThinking || '') + thinking : thinking,
+    })),
+  setSendThinkingToModel: (send) => set({ sendThinkingToModel: send }),
+  setLastThinkingError: (error) => set({ lastThinkingError: error }),
   setIsAgentGenerating: (isAgentGenerating) => set({ isAgentGenerating }),
 
   setSubagents: (subagents) => {
@@ -492,11 +791,49 @@ export const useIDEStore = create<IDEState>((set, get) => ({
   clearReviewDiffs: () => set({ reviewDiffs: {} }),
 
   setCommandPaletteOpen: (isCommandPaletteOpen) => set({ isCommandPaletteOpen }),
+  setFolderPickerOpen: (isFolderPickerOpen) => set({ isFolderPickerOpen }),
   setQRPairingOpen: (isQRPairingOpen) => set({ isQRPairingOpen }),
   setVaultModalOpen: (isVaultModalOpen) => set({ isVaultModalOpen }),
   setAssetStudioOpen: (isAssetStudioOpen) => set({ isAssetStudioOpen }),
-  setSettingsOpen: (isSettingsOpen) => set({ isSettingsOpen }),
+  settingsTarget: null,
+  setSettingsTarget: (settingsTarget) => set({ settingsTarget }),
+  setSettingsOpen: (isSettingsOpen) => set({ isSettingsOpen, settingsTarget: isSettingsOpen ? get().settingsTarget : null }),
+  openSettingsWithTarget: (settingsTarget) => set({ isSettingsOpen: true, settingsTarget }),
   setGuideOpen: (isGuideOpen) => set({ isGuideOpen }),
+  setCoffeeModalOpen: (isCoffeeModalOpen) => set({ isCoffeeModalOpen }),
+  setActiveArtifactModal: (activeArtifactModal) => set({ activeArtifactModal }),
+
+  setMusicEnabled: (isMusicEnabled) => {
+    set({ isMusicEnabled });
+    if (!isMusicEnabled) audioSynth.stop();
+  },
+  setMusicPlaying: (isMusicPlaying) => {
+    set({ isMusicPlaying });
+    if (isMusicPlaying) {
+      audioSynth.play(get().musicTrack);
+    } else {
+      audioSynth.stop();
+    }
+  },
+  setMusicVolume: (musicVolume) => {
+    set({ musicVolume });
+    audioSynth.setVolume(musicVolume);
+  },
+  setMusicTrack: (musicTrack) => {
+    set({ musicTrack });
+    if (get().isMusicPlaying) {
+      audioSynth.play(musicTrack);
+    }
+  },
+  toggleMusicPlaying: () => {
+    const next = !get().isMusicPlaying;
+    set({ isMusicPlaying: next });
+    if (next) {
+      audioSynth.play(get().musicTrack);
+    } else {
+      audioSynth.stop();
+    }
+  },
 }));
 
 function hydrateUiMode(): 'manager' | 'ide' {
@@ -508,6 +845,30 @@ function hydrateUiMode(): 'manager' | 'ide' {
   }
 }
 
+function hydrateActiveModel(): SutraModel {
+  try {
+    const raw = localStorage.getItem('sutra-active-model');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && typeof parsed.id === 'string') {
+        return parsed as SutraModel;
+      }
+    }
+  } catch {
+    // Fall back to default
+  }
+  return {
+    id: 'auto',
+    name: 'SUTRA Auto',
+    provider: 'sutra',
+    contextWindow: 128000,
+    supportsVision: true,
+    supportsTools: true,
+    costPer1kTokens: { input: 0, output: 0 },
+    description: 'SUTRA automatic multi-provider routing gateway.',
+  };
+}
+
 /** Restores the permission mode, migrating legacy values ('allow_all' -> 'full'); defaults to 'full' */
 function hydratePermissionMode(): PermissionLevel {
   try {
@@ -517,6 +878,15 @@ function hydratePermissionMode(): PermissionLevel {
     return 'full';
   } catch {
     return 'full';
+  }
+}
+
+function hydrateHarnessMode(): HarnessMode {
+  try {
+    const stored = localStorage.getItem('sutra-harness-mode');
+    return stored === 'avo' ? 'avo' : 'standard';
+  } catch {
+    return 'standard';
   }
 }
 
@@ -536,8 +906,12 @@ function hydrateStoredStringArray(key: string): string[] {
  * before calling setAvailableModels so an unchanged catalog never triggers a
  * store write — the fix for the model dropdown re-render/flicker loop.
  */
-export function modelCatalogSignature(models: OmniModel[]): string {
-  return JSON.stringify(models.map((m) => m.id).sort());
+export function modelCatalogSignature(models: SutraModel[]): string {
+  return JSON.stringify(
+    models
+      .map((m) => `${m.provider}:${m.id}:${m.name}:${m.contextWindow || 0}:${m.baseUrl || ''}`)
+      .sort()
+  );
 }
 
 function getLanguageFromPath(filePath: string): string {
@@ -552,4 +926,11 @@ function getLanguageFromPath(filePath: string): string {
   if (filePath.endsWith('.go')) return 'go';
   if (filePath.endsWith('.sh') || filePath.endsWith('.bat') || filePath.endsWith('.ps1')) return 'shell';
   return 'plaintext';
+}
+
+export function extractWorkspaceName(wsPath: string): string {
+  if (!wsPath) return '';
+  const clean = wsPath.trim().replace(/[/\\]+$/, '');
+  const parts = clean.split(/[/\\]/).filter(Boolean);
+  return parts[parts.length - 1] || 'omnicraft-ide';
 }

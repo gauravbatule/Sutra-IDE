@@ -10,6 +10,7 @@ website-next/
 # Build output
 dist/
 dist-exe/
+dist-server/
 release/
 *.exe
 
@@ -27,7 +28,13 @@ sutra.db-wal
 # Runtime state
 .sandbox/
 .sutra/
+.sutra_tmp*
+.freebuff/
+.workbuddy-ai/
+coverage/
 *.log
+.css-check.txt
+project-*/
 
 # Local env & secrets
 .env
@@ -46,3 +53,24 @@ src-tauri/target/
 # Per-chat agent working files (runtime data, never source)
 task_plan.md
 .sutra/
+.scratch/
+
+# Test/scratch demo applications & experiments
+minecraft/
+my-app/
+scratch/
+.scratch/
+.agents/
+wingo-predictor-web/
+run-wingo-forecaster.bat
+scripts/wingo_timesfm_forecaster.py
+scripts/find_optimal_filter.py
+scripts/analyze_failures.py
+scripts/test_exact_accuracy.py
+scripts/optimize_models.py
+public/triverge.html
+public/triverge/
+public/assets/test_frame.png
+public/assets/images/cat_crying.jpg
+release_notes.md
+*.log

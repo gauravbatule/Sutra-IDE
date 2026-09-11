@@ -1,38 +1,232 @@
+/* ─────────────────────────────────────────────────────────────────
+ * SUTRA — Obsidian Design System
+ * Two themes via `[data-theme="dark|light"]` on <html>. The default
+ * `:root` is dark-mode-first; light mode is opt-in via the toggle.
+ * Premium tokens inspired by WorkBuddy AI's clean visual hierarchy.
+ * Rules: 90% neutrals, restrained accent, generous spacing.
+ * ───────────────────────────────────────────────────────────────── */
+:root,
+:root[data-theme='dark'] {
+  /* ── Surfaces ─────────────────────────────────────────────────── */
+  --bg-canvas:    #09090b;
+  --bg-surface-0: #0a0a0d;
+  --bg-surface-1: #111114;
+  --bg-surface-2: #17171b;
+  --bg-surface-3: #1f1f25;
+  --bg-surface-4: #2a2a32;
+
+  /* ── Ink (typography scale) ───────────────────────────────────── */
+  --ink-primary:   #fafafa;
+  --ink-secondary: #b4b4be;
+  --ink-muted:     #80808a;
+  --ink-faint:     #4a4a52;
+  --ink-inverse:   #0a0a0d;
+
+  /* ── Accents (scarce, purposeful) ─────────────────────────────── */
+  --accent-silver: #fafafa;
+  --accent-hover:  #e4e4e7;
+  --accent-soft:   rgba(255, 255, 255, 0.10);
+  --accent-softer: rgba(255, 255, 255, 0.06);
+  --accent-softest:rgba(255, 255, 255, 0.03);
+  --accent-glow:   rgba(255, 255, 255, 0.12);
+  --accent-gradient: linear-gradient(135deg, #ffffff 0%, #d4d4d8 100%);
+
+  /* ── Theme-aware translucent UI layers ─────────────────────────── */
+  --overlay-soft:      rgba(255, 255, 255, 0.03);
+  --overlay-muted:     rgba(255, 255, 255, 0.06);
+  --overlay-strong:    rgba(255, 255, 255, 0.10);
+  --focus-halo:        rgba(255, 255, 255, 0.06);
+  --selection-bg:      rgba(255, 255, 255, 0.18);
+  --glass-panel-bg:    rgba(21, 22, 28, 0.82);
+  --glass-dropdown-bg: rgba(20, 21, 27, 0.96);
+  --scrollbar-thumb:   rgba(255, 255, 255, 0.12);
+  --scrollbar-hover:   rgba(255, 255, 255, 0.24);
+  --ambient-wash:      rgba(255, 255, 255, 0.08);
+  --ambient-wash-accent: rgba(160, 140, 235, 0.10);
+  --welcome-image-opacity: 0.28;
+  --welcome-image-blend: screen;
+
+  /* ── State colors (muted, premium) ─────────────────────────────── */
+  --state-success:  #73b99c;
+  --state-warning:  #d8a968;
+  --state-danger:   #d77b83;
+  --state-info:     #93b8d8;
+  --state-thinking: #b89cd9;
+  --state-tool:     #80c8b6;
+
+  /* ── Hairlines (architectural lines, 1px in 4K) ─────────────── */
+  --hairline:        rgba(255, 255, 255, 0.04);
+  --hairline-light:  rgba(255, 255, 255, 0.08);
+  --hairline-bright: rgba(255, 255, 255, 0.16);
+  --hairline-accent: rgba(255, 255, 255, 0.28);
+
+  /* ── Alpha-capable channel mirrors ─────────────────────────────
+   * Tailwind v3 can only apply an opacity modifier (`bg-obsidian-x/30`)
+   * when the color is declared in a form it can inject an alpha into.
+   * With a bare `var(--x)` it emits NOTHING for `bg-obsidian-x/30` — the
+   * utility silently vanishes. These `R G B` triplets let tailwind.config.js
+   * declare `rgb(var(--x-rgb) / <alpha-value>)` so every opacity modifier
+   * compiles correctly.
+   * The hex vars above are kept verbatim: plain CSS / inline styles that do
+   * `var(--bg-surface-2)` keep working unchanged.
+   * NOTE: hairlines are deliberately absent — they already bake their own
+   * alpha (0.04–0.28), so `<alpha-value>` would multiply against it and
+   * produce lines ~15x too strong. Use the unmodified token instead.
+   * ──────────────────────────────────────────────────────────── */
+  --bg-canvas-rgb:    9 9 11;      /* #09090b */
+  --bg-surface-0-rgb: 10 10 13;    /* #0a0a0d */
+  --bg-surface-1-rgb: 17 17 20;    /* #111114 */
+  --bg-surface-2-rgb: 23 23 27;    /* #17171b */
+  --bg-surface-3-rgb: 31 31 37;    /* #1f1f25 */
+  --bg-surface-4-rgb: 42 42 50;    /* #2a2a32 */
+
+  --ink-primary-rgb:   250 250 250; /* #fafafa */
+  --ink-secondary-rgb: 180 180 190; /* #b4b4be */
+  --ink-muted-rgb:     128 128 138; /* #80808a */
+  --ink-faint-rgb:     74 74 82;    /* #4a4a52 */
+  --ink-inverse-rgb:   10 10 13;    /* #0a0a0d */
+
+  --accent-silver-rgb: 250 250 250; /* #fafafa */
+  --accent-hover-rgb:  228 228 231; /* #e4e4e7 */
+
+  --state-success-rgb:  115 185 156; /* #73b99c */
+  --state-warning-rgb:  216 169 104; /* #d8a968 */
+  --state-danger-rgb:   215 123 131; /* #d77b83 */
+  --state-info-rgb:     147 184 216; /* #93b8d8 */
+  --state-thinking-rgb: 184 156 217; /* #b89cd9 */
+  --state-tool-rgb:     128 200 182; /* #80c8b6 */
+
+  /* ── Shadows ─────────────────────────────────────────────────── */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.30);
+  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.40);
+  --shadow-lg: 0 20px 40px -16px rgba(0, 0, 0, 0.55);
+  --shadow-xl: 0 32px 64px -24px rgba(0, 0, 0, 0.65);
+  --shadow-pop: 0 0 0 1px var(--hairline-light), 0 16px 32px -12px rgba(0, 0, 0, 0.60);
+
+  /* ── Primary button micro-detail (button is light-on-dark in dark theme) ── */
+  --btn-primary-inset: rgba(255, 255, 255, 0.05);
+  --btn-primary-lift:  rgba(255, 255, 255, 0.18);
+  /* ── Shimmer sweep (inverts so it stays visible on paper) ───────────── */
+  --shimmer: rgba(255, 255, 255, 0.06);
+
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  /* ── Surfaces (warm-neutral editorial paper) ─────────────── */
+  --bg-canvas:    #fbfaf7;
+  --bg-surface-0: #ffffff;
+  --bg-surface-1: #f5f3ee;
+  --bg-surface-2: #ebe8e1;
+  --bg-surface-3: #e1ddd3;
+  --bg-surface-4: #d6d1c4;
+
+  /* ── Ink (typography scale) ───────────────────────────────── */
+  --ink-primary:   #1a1a1a;
+  --ink-secondary: #54545a;
+  --ink-muted:     #7a7a82;
+  --ink-faint:     #b8b8be;
+  --ink-inverse:   #fafafa;
+
+  /* ── Accents (full ink black for primary action) ───────── */
+  --accent-silver: #0a0a0a;
+  --accent-hover:  #1f1f24;
+  --accent-soft:   rgba(0, 0, 0, 0.06);
+  --accent-softer: rgba(0, 0, 0, 0.04);
+  --accent-softest:rgba(0, 0, 0, 0.025);
+  --accent-glow:   rgba(0, 0, 0, 0.14);
+  --accent-gradient: linear-gradient(135deg, #0a0a0a 0%, #404040 100%);
+
+  /* ── Theme-aware translucent UI layers ───────────────────── */
+  --overlay-soft:      rgba(26, 26, 26, 0.025);
+  --overlay-muted:     rgba(26, 26, 26, 0.055);
+  --overlay-strong:    rgba(26, 26, 26, 0.10);
+  --focus-halo:        rgba(26, 26, 26, 0.055);
+  --selection-bg:      rgba(26, 26, 26, 0.16);
+  --glass-panel-bg:    rgba(255, 255, 255, 0.88);
+  --glass-dropdown-bg: rgba(255, 255, 255, 0.97);
+  --scrollbar-thumb:   rgba(26, 26, 26, 0.16);
+  --scrollbar-hover:   rgba(26, 26, 26, 0.30);
+  --ambient-wash:      rgba(66, 58, 44, 0.07);
+  --ambient-wash-accent: rgba(108, 74, 158, 0.06);
+  --welcome-image-opacity: 0.10;
+  --welcome-image-blend: multiply;
+
+  /* ── State colors (slightly deeper for AA-on-paper) ─────── */
+  --state-success:  #2f8a6a;
+  --state-warning:  #ad6f1c;
+  --state-danger:   #b03039;
+  --state-info:     #2c5d9f;
+  --state-thinking: #6c4a9e;
+  --state-tool:     #1a7d8a;
+
+  /* ── Hairlines (warm sepia hairlines) ────────────────────── */
+  --hairline:        rgba(0, 0, 0, 0.05);
+  --hairline-light:  rgba(0, 0, 0, 0.10);
+  --hairline-bright: rgba(0, 0, 0, 0.18);
+  --hairline-accent: rgba(0, 0, 0, 0.32);
+
+  /* ── Alpha-capable channel mirrors (see dark block for rationale) ── */
+  --bg-canvas-rgb:    251 250 247; /* #fbfaf7 */
+  --bg-surface-0-rgb: 255 255 255; /* #ffffff */
+  --bg-surface-1-rgb: 245 243 238; /* #f5f3ee */
+  --bg-surface-2-rgb: 235 232 225; /* #ebe8e1 */
+  --bg-surface-3-rgb: 225 221 211; /* #e1ddd3 */
+  --bg-surface-4-rgb: 214 209 196; /* #d6d1c4 */
+
+  --ink-primary-rgb:   26 26 26;    /* #1a1a1a */
+  --ink-secondary-rgb: 84 84 90;    /* #54545a */
+  --ink-muted-rgb:     122 122 130; /* #7a7a82 */
+  --ink-faint-rgb:     184 184 190; /* #b8b8be */
+  --ink-inverse-rgb:   250 250 250; /* #fafafa */
+
+  --accent-silver-rgb: 10 10 10;   /* #0a0a0a */
+  --accent-hover-rgb:  31 31 36;   /* #1f1f24 */
+
+  --state-success-rgb:  47 138 106; /* #2f8a6a */
+  --state-warning-rgb:  173 111 28; /* #ad6f1c */
+  --state-danger-rgb:   176 48 57;  /* #b03039 */
+  --state-info-rgb:     44 93 159;  /* #2c5d9f */
+  --state-thinking-rgb: 108 74 158; /* #6c4a9e */
+  --state-tool-rgb:     26 125 138; /* #1a7d8a */
+
+  /* ── Shadows (paper-friendly, never harsh) ─────────────── */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 20px 40px -16px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 32px 64px -24px rgba(0, 0, 0, 0.18);
+  --shadow-pop: 0 0 0 1px var(--hairline-light), 0 16px 32px -12px rgba(0, 0, 0, 0.10);
+
+  /* ── Primary button micro-detail (button is dark-on-paper in light theme) ── */
+  --btn-primary-inset: rgba(255, 255, 255, 0.14);
+  --btn-primary-lift:  rgba(26, 26, 26, 0.28);
+  /* ── Shimmer sweep (darkens on paper so the sweep stays visible) ─────── */
+  --shimmer: rgba(26, 26, 26, 0.055);
+
+  color-scheme: light;
+}
+
+/* ── Shared tokens (theme-agnostic) ───────────────────────────── */
 :root {
-  /* SUTRA stark minimal palette */
-  --bg-canvas: #000000;
-  --bg-surface-0: #050505;
-  --bg-surface-1: #0a0a0c;
-  --bg-surface-2: #121214;
-  --bg-surface-3: #18181b;
-  --bg-surface-4: #27272a;
+  /* ── Radii ─────────────────────────────────────────────────── */
+  --r-1: 4px;
+  --r-2: 6px;
+  --r-3: 10px;
+  --r-4: 14px;
+  --r-5: 20px;
 
-  /* Typography & Ink */
-  --ink-primary: #fafafa;
-  --ink-secondary: #a1a1aa;
-  --ink-muted: #71717a;
-  --ink-faint: #3f3f46;
+  /* ── Motion (calm, never bouncy) ────────────────────────── */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --t-1: 120ms;
+  --t-2: 200ms;
+  --t-3: 320ms;
+  --t-4: 520ms;
 
-  /* Stark Silver/White Accent */
-  --accent-blue: #ffffff;
-  --accent-cyan: #ffffff;
-  --accent-indigo: #ffffff;
-  --accent-purple: #ffffff;
-  --accent-glow: rgba(255, 255, 255, 0.08);
-  --accent-gradient: linear-gradient(135deg, #ffffff 0%, #e4e4e7 100%);
-
-  /* State Colors */
-  --color-success: #73b99c;
-  --color-warning: #d8a968;
-  --color-danger: #d77b83;
-  --color-info: #ffffff;
-
-  /* Architectural Hairlines */
-  --hairline: rgba(255, 255, 255, 0.04);
-  --hairline-light: rgba(255, 255, 255, 0.08);
-  --hairline-accent: rgba(255, 255, 255, 0.15);
-
-  /* Fonts */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  /* ── Typography ────────────────────────────────────────── */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+               'SF Pro Text', 'Helvetica Neue', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace;
+  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display',
+                  'Helvetica Neue', sans-serif;
 }

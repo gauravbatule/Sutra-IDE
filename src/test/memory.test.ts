@@ -5,6 +5,7 @@ import {
   rememberMemory,
   forgetMemory,
   listMemories,
+  searchMemories,
   touchMemories,
   pruneMemories,
   buildMemorySection,
@@ -75,6 +76,19 @@ describe('agent memory', () => {
     expect(forgetMemory(entry.id)).toBe(true);
     expect(forgetMemory(entry.id)).toBe(false);
     expect(listMemories()).toHaveLength(0);
+  });
+
+  it('stores and searches multi-tier memories (architecture, episodic, lesson)', () => {
+    rememberMemory({ kind: 'architecture', content: 'Client uses React 19 with Vite and Tailwind v4' });
+    rememberMemory({ kind: 'episodic', content: 'Fixed hydration mismatch by deferring Monaco mount' });
+    rememberMemory({ kind: 'lesson', content: 'Always run CI=true on vitest runs' });
+
+    const results = listMemories();
+    expect(results).toHaveLength(3);
+
+    const searchRes = searchMemories({ query: 'Monaco hydration' });
+    expect(searchRes.length).toBeGreaterThanOrEqual(1);
+    expect(searchRes[0].content).toContain('hydration mismatch');
   });
 
   it('prunes stale memories down to the cap', () => {

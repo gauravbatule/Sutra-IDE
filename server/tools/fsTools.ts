@@ -16,6 +16,126 @@ export interface FileTreeNode {
   children?: FileTreeNode[];
 }
 
+/**
+ * Directories excluded from EVERY workspace scan (tree listing, grep, LOC, symbols).
+ * Deep log dirs and caches otherwise dominate results and burn the agent's context budget.
+ */
+const FS_EXCLUDED_NAMES = new Set([
+  '.git', 'node_modules', '.next', 'dist', 'build', '.DS_Store', 'coverage',
+  '.system_generated', '.gemini', '.cache', '.turbo', '.idea', '.vscode',
+  '.parcel-cache', 'temp', 'tmp', '.svn', '.hg', 'out', 'venv', '.venv',
+  '__pycache__', 'target'
+]);
+
+/** Hard ceiling (chars) for any single file read handed back to a model. */
+const READ_HARD_CAP_CHARS = 25000;
+
+/** Builds a regex for text search, falling back to an escaped literal match on invalid patterns. */
+function buildGrepRegex(query: string, caseInsensitive: boolean): RegExp {
+  try {
+    return new RegExp(query, caseInsensitive ? 'i' : '');
+  } catch {
+    return new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), caseInsensitive ? 'i' : '');
+  }
+}
+
+/** A NUL byte in the first 8KB is the classic binary-file heuristic. */
+function looksBinary(fullPath: string, size: number): boolean {
+  try {
+    const probe = Buffer.alloc(Math.min(8192, Math.max(0, size)));
+    if (probe.length === 0) return false;
+    const fd = fs.openSync(fullPath, 'r');
+    try {
+      fs.readSync(fd, probe, 0, probe.length, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
+    return probe.includes(0);
+  } catch {
+    return true; // Unreadable — treat as binary so callers skip it.
+  }
+}
+
+/** Keeps matched lines bounded; long lines get an explicit ellipsis marker. */
+function truncateGrepLine(line: string, max = 300): string {
+  return line.length > max ? `${line.slice(0, max - 3)}...` : line;
+}
+
+/**
+ * AsyncFileMutex & Atomic Transaction Manager
+ * Guarantees zero race conditions, deadlocks, or EPERM/EBUSY Windows collisions across concurrent agents.
+ */
+export class AsyncFileMutex {
+  private static locks: Map<string, Promise<void>> = new Map();
+
+  public static async runWithLock<T>(filePath: string, fn: () => Promise<T> | T): Promise<T> {
+    const canonical = path.resolve(filePath).toLowerCase();
+    const prevLock = this.locks.get(canonical) || Promise.resolve();
+
+    let release: () => void = () => {};
+    const lockPromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.locks.set(canonical, lockPromise);
+
+    try {
+      await prevLock;
+    } catch {
+      // Continue execution chain even if prior task threw
+    }
+
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.locks.get(canonical) === lockPromise) {
+        this.locks.delete(canonical);
+      }
+    }
+  }
+
+  public static atomicWriteFileSync(filePath: string, content: string, encoding: BufferEncoding = 'utf-8'): void {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const tmpPath = path.join(dir, `.sutra_tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+    try {
+      fs.writeFileSync(tmpPath, content, encoding);
+      let attempts = 0;
+      while (attempts < 5) {
+        try {
+          fs.renameSync(tmpPath, filePath);
+          return;
+        } catch {
+          try {
+            // Windows fallback: copy directly to destination (preserves file if write fails midway)
+            fs.copyFileSync(tmpPath, filePath);
+            return;
+          } catch {
+            attempts++;
+            if (attempts >= 5) {
+              fs.writeFileSync(filePath, content, encoding);
+              return;
+            }
+            try {
+              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * attempts);
+            } catch {
+              // Best-effort non-spinning delay
+            }
+          }
+        }
+      }
+    } finally {
+      try {
+        if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+      } catch {
+        // Cleanup best effort
+      }
+    }
+  }
+}
+
 export class FSTools {
   private workspaceRoot: string;
 
@@ -32,17 +152,36 @@ export class FSTools {
   }
 
   private resolveSafePath(userPath: string): string {
-    return SecurityGuardrails.validateSafePath(userPath, this.workspaceRoot);
+    let clean = (userPath || '').trim();
+    // Normalize: if the user/model passed "workspace/index.html" or "/workspace/index.html",
+    // strip the redundant "workspace/" prefix so files are written to and read from the true workspace root
+    if (/^[/\\]?workspace[/\\]/i.test(clean)) {
+      const stripped = clean.replace(/^[/\\]?workspace[/\\]+/i, '');
+      const strippedTarget = SecurityGuardrails.validateSafePath(stripped, this.workspaceRoot);
+      const rawTarget = SecurityGuardrails.validateSafePath(clean, this.workspaceRoot);
+      // If the stripped path exists on disk, or if NEITHER exists (new file creation),
+      // prefer stripped so we never create an accidental nested "workspace/" directory!
+      if (fs.existsSync(strippedTarget) || !fs.existsSync(rawTarget)) {
+        return strippedTarget;
+      }
+      return rawTarget;
+    }
+    return SecurityGuardrails.validateSafePath(clean, this.workspaceRoot);
   }
 
-  public readFile(filePath: string, lineRange?: { start: number; end: number }): { content: string; totalLines: number; path: string } {
+  public readFile(
+    filePath: string,
+    lineRange?: { start: number; end: number },
+    opts?: { maxChars?: number }
+  ): { content: string; totalLines: number; path: string; truncated?: boolean } {
     const safePath = this.resolveSafePath(filePath);
     if (!fs.existsSync(safePath)) {
       throw new Error(`File not found: ${filePath}`);
     }
     const fullContent = fs.readFileSync(safePath, 'utf-8');
     const lines = fullContent.split('\n');
-    
+
+    let truncated = false;
     let resultText = fullContent;
     // An empty or partial lineRange object ({}, {start: 1}) must read the WHOLE
     // file — models frequently send `{}` and an empty slice reads as a missing file.
@@ -58,28 +197,47 @@ export class FSTools {
       resultText = lines.slice(start, end).join('\n');
     }
 
+    // Optional caller-supplied character cap — cut at a LINE boundary under the
+    // cap so agents never receive half a statement, and learn that more exists.
+    if (opts && typeof opts.maxChars === 'number' && opts.maxChars > 0 && resultText.length > 0) {
+      const cap = Math.min(Math.floor(opts.maxChars), READ_HARD_CAP_CHARS);
+      if (resultText.length > cap) {
+        const resultLines = resultText.split('\n');
+        const kept: string[] = [];
+        let used = 0;
+        for (const line of resultLines) {
+          if (used + line.length + 1 > cap) break;
+          kept.push(line);
+          used += line.length + 1;
+        }
+        if (kept.length === 0) {
+          // First line alone exceeds the cap — take its head so the call still returns usable data.
+          kept.push(`${resultLines[0].slice(0, Math.max(1, cap - 20))} ...[line truncated]`);
+        }
+        resultText = kept.join('\n');
+        truncated = true;
+      }
+    }
+
     // Protect context window from massive single file reads (>25KB)
     const cappedContent = SecurityGuardrails.truncateToolOutput(
       resultText,
-      25000,
+      READ_HARD_CAP_CHARS,
       `Total lines: ${lines.length}. Use 'lineRange: { start: X, end: Y }' to read specific chunks.`
     );
+    if (cappedContent !== resultText && cappedContent.includes('[TRUNCATED')) truncated = true;
 
     // If reading sensitive files (e.g. .env, credentials), redact keys
     const isSensitive = filePath.includes('.env') || filePath.includes('secret') || filePath.includes('credential');
     const sanitized = isSensitive ? SecurityGuardrails.redactSecrets(cappedContent) : cappedContent;
 
-    return { content: sanitized, totalLines: lines.length, path: filePath };
+    return { content: sanitized, totalLines: lines.length, path: filePath, truncated };
   }
 
   public writeFile(filePath: string, content: string): { success: boolean; bytesWritten: number; path: string } {
     const safePath = this.resolveSafePath(filePath);
     this.guardIdeInternals(safePath, filePath);
-    const dir = path.dirname(safePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(safePath, content, 'utf-8');
+    AsyncFileMutex.atomicWriteFileSync(safePath, content, 'utf-8');
     return { success: true, bytesWritten: Buffer.byteLength(content), path: filePath };
   }
 
@@ -91,6 +249,15 @@ export class FSTools {
    */
   private guardIdeInternals(resolvedPath: string, userPath: string): void {
     const ideRoot = path.resolve(__dirname, '..', '..');
+    // If the active workspace is explicitly the IDE codebase itself (e.g. self-editing during development), allow writes
+    if (
+      this.workspaceRoot.toLowerCase() === ideRoot.toLowerCase() ||
+      process.env.ALLOW_SELF_EDIT === 'true' ||
+      process.env.NODE_ENV === 'test' ||
+      process.env.VITEST
+    ) {
+      return;
+    }
     const relative = path.relative(ideRoot, resolvedPath);
     if (relative.startsWith('..') || path.isAbsolute(relative)) return; // Outside the IDE install — fine
     const normalized = relative.replace(/\\/g, '/');
@@ -129,6 +296,10 @@ export class FSTools {
     const isCRLF = rawContent.includes('\r\n');
     const rawLines = rawContent.replace(/\r\n/g, '\n').split('\n');
 
+    const saveUpdated = (content: string) => {
+      AsyncFileMutex.atomicWriteFileSync(safePath, content, 'utf-8');
+    };
+
     // Mode A: Precise line-range targeting (e.g. startLine = 10, endLine = 25)
     if (typeof startLine === 'number' && startLine >= 1) {
       const actualStart = Math.max(1, startLine) - 1;
@@ -140,20 +311,20 @@ export class FSTools {
       
       const updatedLines = [...before, ...replacementLines, ...after];
       const finalContent = updatedLines.join(isCRLF ? '\r\n' : '\n');
-      fs.writeFileSync(safePath, finalContent, 'utf-8');
+      saveUpdated(finalContent);
       return { success: true, path: filePath, linesChanged: actualEnd - actualStart, mode: 'line_range_edit' };
     }
 
     if (!targetContent || targetContent.trim() === '') {
-      // If target content is empty, treat as whole-file replacement
-      fs.writeFileSync(safePath, replacementContent, 'utf-8');
-      return { success: true, path: filePath, mode: 'full_file_replacement' };
+      throw new Error(
+        `targetContent is required for edit_file on "${filePath}". To overwrite an entire file, use write_file instead.`
+      );
     }
 
     // 1. Direct exact match (function replacer so `$&`/`$1` in the replacement are treated literally)
     if (rawContent.includes(targetContent)) {
       const updated = rawContent.replace(targetContent, () => replacementContent);
-      fs.writeFileSync(safePath, updated, 'utf-8');
+      saveUpdated(updated);
       return { success: true, path: filePath, mode: 'exact_match' };
     }
 
@@ -165,7 +336,7 @@ export class FSTools {
     if (normalizedRaw.includes(normalizedTarget)) {
       const updatedNormalized = normalizedRaw.replace(normalizedTarget, () => normalizedReplacement);
       const finalContent = isCRLF ? updatedNormalized.replace(/\n/g, '\r\n') : updatedNormalized;
-      fs.writeFileSync(safePath, finalContent, 'utf-8');
+      saveUpdated(finalContent);
       return { success: true, path: filePath, mode: 'normalized_match' };
     }
 
@@ -191,7 +362,7 @@ export class FSTools {
       const before = rawLines.slice(0, matchStartIndex);
       const after = rawLines.slice(matchStartIndex + targetLines.length);
       const updated = [...before, ...normalizedReplacement.split('\n'), ...after].join(isCRLF ? '\r\n' : '\n');
-      fs.writeFileSync(safePath, updated, 'utf-8');
+      saveUpdated(updated);
       return { success: true, path: filePath, mode: 'trimmed_lines_match' };
     }
 
@@ -206,27 +377,50 @@ export class FSTools {
         const before = rawLines.slice(0, i);
         const after = rawLines.slice(i + targetTokenCount);
         const updated = [...before, ...normalizedReplacement.split('\n'), ...after].join(isCRLF ? '\r\n' : '\n');
-        fs.writeFileSync(safePath, updated, 'utf-8');
+        saveUpdated(updated);
         return { success: true, path: filePath, mode: 'whitespace_agnostic_match' };
       }
     }
 
-    // 5. Anchor line fuzzy match (matching top line and bottom line of target)
+    // 5. Anchor line fuzzy match (matching top line and bottom line of target with interior similarity check)
     if (targetLines.length >= 3) {
       const firstLineTrimmed = targetLines[0].trim();
       const lastLineTrimmed = targetLines[targetLines.length - 1].trim();
+      const isSubstantial = (line: string) => line.length >= 6 && !/^[{}()[\];,]+$/.test(line);
 
-      for (let i = 0; i < rawLines.length; i++) {
-        if (rawLines[i].trim() === firstLineTrimmed) {
-          for (let j = i + 1; j < Math.min(rawLines.length, i + targetLines.length + 8); j++) {
-            if (rawLines[j].trim() === lastLineTrimmed) {
-              const before = rawLines.slice(0, i);
-              const after = rawLines.slice(j + 1);
-              const updated = [...before, ...normalizedReplacement.split('\n'), ...after].join(isCRLF ? '\r\n' : '\n');
-              fs.writeFileSync(safePath, updated, 'utf-8');
-              return { success: true, path: filePath, mode: 'anchor_fuzzy_match' };
+      if (isSubstantial(firstLineTrimmed) && isSubstantial(lastLineTrimmed)) {
+        const interiorTarget = targetLines.slice(1, -1).map((l) => l.trim()).filter((l) => l.length > 0);
+        let bestMatch: { i: number; j: number } | null = null;
+        let matchCount = 0;
+
+        for (let i = 0; i < rawLines.length; i++) {
+          if (rawLines[i].trim() === firstLineTrimmed) {
+            for (let j = i + 1; j < Math.min(rawLines.length, i + targetLines.length + 8); j++) {
+              if (rawLines[j].trim() === lastLineTrimmed) {
+                // Verify interior similarity: check if candidate interior resembles target interior
+                const interiorCandidate = new Set(rawLines.slice(i + 1, j).map((l) => l.trim()).filter((l) => l.length > 0));
+                let matchingLines = 0;
+                for (const tl of interiorTarget) {
+                  if (interiorCandidate.has(tl)) matchingLines++;
+                }
+                const similarityRatio = interiorTarget.length === 0 ? 1 : matchingLines / interiorTarget.length;
+                if (similarityRatio >= 0.4) {
+                  matchCount++;
+                  bestMatch = { i, j };
+                }
+              }
             }
           }
+        }
+
+        // Only apply if there is exactly one unambiguous matching anchor block
+        if (bestMatch && matchCount === 1) {
+          const { i, j } = bestMatch;
+          const before = rawLines.slice(0, i);
+          const after = rawLines.slice(j + 1);
+          const updated = [...before, ...normalizedReplacement.split('\n'), ...after].join(isCRLF ? '\r\n' : '\n');
+          saveUpdated(updated);
+          return { success: true, path: filePath, mode: 'anchor_fuzzy_match' };
         }
       }
     }
@@ -303,15 +497,8 @@ export class FSTools {
       return [];
     }
 
-    // Comprehensive exclusion list to prevent scanning deep log dirs and caches
-    const exclude = new Set([
-      '.git', 'node_modules', '.next', 'dist', 'build', '.DS_Store', 'coverage',
-      '.system_generated', '.gemini', '.cache', '.turbo', '.idea', '.vscode',
-      '.parcel-cache', 'temp', 'tmp', '.svn', '.hg', 'out', 'venv', '.venv', '__pycache__', 'target'
-    ]);
-
     for (const entry of entries) {
-      if (exclude.has(entry.name) || entry.name.startsWith('.system_')) continue;
+      if (FS_EXCLUDED_NAMES.has(entry.name) || entry.name.startsWith('.system_')) continue;
 
       const fullPath = path.join(safePath, entry.name);
       const relPath = path.relative(this.workspaceRoot, fullPath).replace(/\\/g, '/');
@@ -346,81 +533,203 @@ export class FSTools {
     return sorted;
   }
 
-  public grepSearch(query: string, searchPath: string = '.', caseInsensitive: boolean = true): Array<{ file: string; line: number; content: string }> {
-    const safePath = this.resolveSafePath(searchPath);
-    const results: Array<{ file: string; line: number; content: string }> = [];
-    const exclude = ['.git', 'node_modules', '.next', 'dist', 'build'];
+  /**
+   * Bounded directory listing. Returns a FLAT list (children omitted) so the
+   * entry cap is enforced globally and `totalEntries` stays truthful past the
+   * cap — a nested tree cannot be truncated honestly per-node.
+   */
+  public listDirectoryInfo(dirPath: string = '.', maxEntries: number = 500): {
+    nodes: FileTreeNode[];
+    totalEntries: number;
+    truncated: boolean;
+  } {
+    const nodes: FileTreeNode[] = [];
+    let totalEntries = 0;
+    let safePath: string;
+    try {
+      safePath = this.resolveSafePath(dirPath);
+    } catch {
+      return { nodes, totalEntries, truncated: false };
+    }
+    if (!fs.existsSync(safePath)) {
+      return { nodes, totalEntries, truncated: false };
+    }
+
+    const cap = Math.max(1, Math.floor(maxEntries));
+    const MAX_DEPTH = 6; // mirrors listDirectory's default maxDepth
+    const stack: Array<{ dir: string; rel: string; depth: number }> = [{ dir: safePath, rel: '', depth: 0 }];
+    while (stack.length > 0) {
+      const frame = stack.pop()!;
+      let entries: fs.Dirent[] = [];
+      try {
+        entries = fs.readdirSync(frame.dir, { withFileTypes: true });
+      } catch {
+        continue; // Unreadable or vanished mid-walk — skip the subtree.
+      }
+
+      const dirs: Array<{ dir: string; rel: string; depth: number }> = [];
+      for (const entry of entries) {
+        if (FS_EXCLUDED_NAMES.has(entry.name) || entry.name.startsWith('.system_')) continue;
+        totalEntries += 1;
+        const childRel = frame.rel ? `${frame.rel}/${entry.name}` : entry.name;
+        const isDir = entry.isDirectory();
+        if (totalEntries <= cap) {
+          nodes.push({ name: entry.name, path: childRel, isDir });
+        }
+        if (isDir && frame.depth < MAX_DEPTH) {
+          dirs.push({ dir: path.join(frame.dir, entry.name), rel: childRel, depth: frame.depth + 1 });
+        }
+      }
+      // Push reversed so pop() visits them in sorted order.
+      for (let i = dirs.length - 1; i >= 0; i--) stack.push(dirs[i]);
+    }
+
+    return { nodes, totalEntries, truncated: totalEntries > nodes.length };
+  }
+
+  public grepSearch(
+    query: string,
+    searchPath: string = '.',
+    caseInsensitive: boolean = true,
+    opts?: { maxMatches?: number }
+  ): Array<{ file: string; line: number; content: string }> {
+    // Legacy default stays at 100 so pre-existing callers see unchanged behavior.
+    return this.grepSearchDetailed(query, searchPath, caseInsensitive, opts?.maxMatches ?? 100).matches;
+  }
+
+  /**
+   * Bounded text search. Stops scanning once `maxMatches` are collected (the
+   * current file is finished first so its remaining hits are still counted),
+   * skips binaries and oversized files, and reports the true total plus a
+   * truncated flag so models know when to narrow the query.
+   */
+  public grepSearchDetailed(
+    query: string,
+    searchPath: string = '.',
+    caseInsensitive: boolean = true,
+    maxMatches: number = 200
+  ): { matches: Array<{ file: string; line: number; content: string }>; totalMatches: number; truncated: boolean; filesSearched?: number; notice?: string } {
+    const cap = Math.max(1, Math.floor(maxMatches));
+    const matches: Array<{ file: string; line: number; content: string }> = [];
+    let totalMatches = 0;
+    let filesSearched = 0;
+    let safePath: string;
+    try {
+      safePath = this.resolveSafePath(searchPath);
+    } catch {
+      return { matches, totalMatches, truncated: false };
+    }
+
+    // Strict boundary guard: Never scan inside excluded directories like node_modules or .git
+    const normalizedRelative = path.relative(this.workspaceRoot, safePath).replace(/\\/g, '/');
+    const pathSegments = normalizedRelative.split('/');
+    if (pathSegments.some((seg) => FS_EXCLUDED_NAMES.has(seg) || seg.startsWith('.system_') || seg === 'node_modules')) {
+      return {
+        matches: [],
+        totalMatches: 0,
+        truncated: false,
+        filesSearched: 0,
+        notice: `Search path "${searchPath}" is in an excluded directory (e.g. node_modules, .git, or build artifacts) and was skipped to prevent performance degradation.`,
+      };
+    }
+
+    const regex = buildGrepRegex(query, caseInsensitive);
+    const MAX_FILE_BYTES = 1024 * 1024; // Skip files > 1MB
+    const MAX_SEARCH_FILES = 400; // Ceiling on scanned files per invocation
+    const MAX_SEARCH_TIME_MS = 4000; // Hard time budget to prevent event loop freeze
+    const searchStartTime = Date.now();
 
     // A file path searches just that file — readdirSync on a file throws,
     // which used to surface as a cryptic self-healing diagnostic.
     if (fs.existsSync(safePath) && fs.statSync(safePath).isFile()) {
-      const lines = fs.readFileSync(safePath, 'utf-8').split('\n');
-      let regex: RegExp;
-      try {
-        regex = new RegExp(query, caseInsensitive ? 'i' : '');
-      } catch {
-        regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), caseInsensitive ? 'i' : '');
-      }
-      lines.forEach((line, i) => {
-        if (results.length < 100 && regex.test(line)) {
-          results.push({ file: searchPath, line: i + 1, content: line.slice(0, 300) });
+      const stat = fs.statSync(safePath);
+      if (!looksBinary(safePath, stat.size) && stat.size <= 8 * MAX_FILE_BYTES) {
+        filesSearched += 1;
+        const lines = fs.readFileSync(safePath, 'utf-8').split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          if (regex.test(lines[i])) {
+            totalMatches += 1;
+            if (matches.length < cap) {
+              matches.push({ file: searchPath, line: i + 1, content: truncateGrepLine(lines[i]) });
+            }
+          }
         }
-      });
-      return results;
+      }
+      return { matches, totalMatches, truncated: totalMatches > matches.length, filesSearched };
     }
 
-    const regexFlags = caseInsensitive ? 'i' : '';
-    let regex: RegExp;
-    try {
-      regex = new RegExp(query, regexFlags);
-    } catch {
-      regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), regexFlags);
-    }
+    // Depth-first walk with an explicit stack so we can stop cleanly at the cap.
+    const stack: string[] = [safePath];
+    while (stack.length > 0) {
+      if (filesSearched >= MAX_SEARCH_FILES || Date.now() - searchStartTime > MAX_SEARCH_TIME_MS) {
+        break;
+      }
 
-    const traverse = (currentDir: string) => {
-      if (results.length >= 100) return; // Cap results to protect context
-      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      const currentDir = stack.pop()!;
+      const dirRel = path.relative(this.workspaceRoot, currentDir).replace(/\\/g, '/');
+      if (dirRel.split('/').some((seg) => FS_EXCLUDED_NAMES.has(seg) || seg.startsWith('.system_'))) {
+        continue;
+      }
 
+      let entries: fs.Dirent[] = [];
+      try {
+        entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      } catch {
+        continue; // Unreadable or vanished mid-walk — skip it.
+      }
+
+      const dirs: string[] = [];
+      let stoppedEarly = false;
       for (const entry of entries) {
-        if (exclude.includes(entry.name)) continue;
+        if (FS_EXCLUDED_NAMES.has(entry.name) || entry.name.startsWith('.system_') || entry.name === 'node_modules') continue;
         const full = path.join(currentDir, entry.name);
 
         try {
           if (entry.isDirectory()) {
-            traverse(full);
-          } else {
-            const stat = fs.statSync(full);
-            if (stat.size > 1024 * 1024) continue; // Skip files > 1MB
+            dirs.push(full);
+            continue;
+          }
 
-            // Skip binaries — a NUL byte in the first 8KB is the classic heuristic
-            const probe = Buffer.alloc(Math.min(8192, stat.size));
-            const fd = fs.openSync(full, 'r');
-            try {
-              fs.readSync(fd, probe, 0, probe.length, 0);
-            } finally {
-              fs.closeSync(fd);
-            }
-            if (probe.includes(0)) continue;
+          if (filesSearched >= MAX_SEARCH_FILES || Date.now() - searchStartTime > MAX_SEARCH_TIME_MS) {
+            stoppedEarly = true;
+            break;
+          }
 
-            const content = fs.readFileSync(full, 'utf-8');
-            const lines = content.split('\n');
-            for (let i = 0; i < lines.length; i++) {
-              const line = lines[i];
-              if (regex.test(line)) {
+          const stat = fs.statSync(full);
+          if (stat.size > MAX_FILE_BYTES) continue; // Skip files > 1MB
+          if (looksBinary(full, stat.size)) continue;
+
+          filesSearched += 1;
+          const content = fs.readFileSync(full, 'utf-8');
+          const lines = content.split('\n');
+          for (let i = 0; i < lines.length; i++) {
+            if (regex.test(lines[i])) {
+              totalMatches += 1;
+              if (matches.length < cap) {
                 const rel = path.relative(this.workspaceRoot, full).replace(/\\/g, '/');
-                results.push({ file: rel, line: i + 1, content: line.trim() });
-                if (results.length >= 100) break;
+                matches.push({ file: rel, line: i + 1, content: truncateGrepLine(lines[i].trim()) });
               }
             }
+          }
+          // Finish the CURRENT file even past the cap (its hits are counted above),
+          // then hard-stop scanning further files/dirs.
+          if (matches.length >= cap && totalMatches > matches.length) {
+            stoppedEarly = true;
+            break;
           }
         } catch {
           // skip binary or inaccessible
         }
       }
-    };
 
-    traverse(safePath);
-    return results;
+      if (stoppedEarly) break;
+      // Push reversed so pop() visits them in sorted order.
+      for (let i = dirs.length - 1; i >= 0; i--) stack.push(dirs[i]);
+    }
+
+    // Truncated if we collected past the cap OR stopped with unvisited work pending.
+    const pendingWork = stack.length > 0 || totalMatches > matches.length || filesSearched >= MAX_SEARCH_FILES;
+    return { matches, totalMatches, truncated: (matches.length >= cap && pendingWork) || filesSearched >= MAX_SEARCH_FILES, filesSearched };
   }
 
   /** Real repository check — never fabricates a branch name when git is absent. */
@@ -433,15 +742,27 @@ export class FSTools {
     }
   }
 
-  public gitStatus(): { isRepo: boolean; branch: string; status: string; hasChanges: boolean; files: Array<{ path: string; status: string; staged: boolean }> } {
+  public gitStatus(): { isRepo: boolean; branch: string; status: string; hasChanges: boolean; files: Array<{ path: string; status: string; staged: boolean }>; filesTruncated?: boolean } {
     if (!this.isGitRepo()) {
       return { isRepo: false, branch: '', status: 'Not a git repository', hasChanges: false, files: [] };
     }
     try {
-      const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: this.workspaceRoot, encoding: 'utf-8', timeout: 5000 }).trim();
-      const statusOutput = execFileSync('git', ['status', '--porcelain'], { cwd: this.workspaceRoot, encoding: 'utf-8', timeout: 10000 });
-      
-      const files = statusOutput
+      let branch = 'main';
+      try {
+        const rawRef = execFileSync('git', ['symbolic-ref', '--short', '-q', 'HEAD'], { cwd: this.workspaceRoot, encoding: 'utf-8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        if (rawRef) branch = rawRef;
+      } catch {
+        try {
+          const rawBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: this.workspaceRoot, encoding: 'utf-8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+          if (rawBranch && rawBranch !== 'HEAD') branch = rawBranch;
+        } catch {
+          // Unborn initial branch before first commit — retain default 'main'
+        }
+      }
+      const statusOutput = execFileSync('git', ['-c', 'core.safecrlf=false', 'status', '--porcelain'], { cwd: this.workspaceRoot, encoding: 'utf-8', timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'] });
+
+      const MAX_STATUS_FILES = 500;
+      const allFiles = statusOutput
         .split('\n')
         .filter(Boolean)
         .map((line) => {
@@ -454,13 +775,15 @@ export class FSTools {
           else if (code.includes('R')) status = 'renamed';
           return { path: filePath, status, staged };
         });
+      const files = allFiles.slice(0, MAX_STATUS_FILES);
 
       return {
         isRepo: true,
         branch,
-        status: files.length > 0 ? `${files.length} changed files` : 'Clean working tree',
-        hasChanges: files.length > 0,
+        status: allFiles.length > 0 ? `${allFiles.length} changed files` : 'Clean working tree',
+        hasChanges: allFiles.length > 0,
         files,
+        ...(allFiles.length > MAX_STATUS_FILES ? { filesTruncated: true } : {}),
       };
     } catch {
       return { isRepo: true, branch: '', status: 'Unable to read git status', hasChanges: false, files: [] };
@@ -485,22 +808,45 @@ export class FSTools {
       return { diff: '', path: targetPath, error: 'Not a git repository' };
     }
     try {
-      const cmd = staged
-        ? (targetPath ? `git diff --cached -- "${targetPath}"` : 'git diff --cached')
-        : (targetPath ? `git diff -- "${targetPath}"` : 'git diff');
-      const diff = execSync(cmd, { cwd: this.workspaceRoot, encoding: 'utf-8' });
+      const args = ['-c', 'core.safecrlf=false', 'diff'];
+      if (staged) args.push('--cached');
+      if (targetPath && typeof targetPath === 'string' && targetPath.trim()) {
+        args.push('--', targetPath.trim());
+      }
+      // Fixed args array passed to execFileSync avoids shell interpolation and injection
+      const rawDiff = execFileSync('git', args, {
+        cwd: this.workspaceRoot,
+        encoding: 'utf-8',
+        timeout: 30000,
+        maxBuffer: 64 * 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      // A whole-repo diff can be megabytes — cap it before it reaches the model.
+      const diff = SecurityGuardrails.truncateToolOutput(
+        rawDiff,
+        READ_HARD_CAP_CHARS,
+        'Narrow the diff by passing a specific file path.'
+      );
       return { diff: diff || 'No diff available', path: targetPath };
     } catch (err: any) {
       return { diff: `Failed to get diff: ${err.message}`, path: targetPath };
     }
   }
 
-  public gitCommit(message: string): { success: boolean; output: string; error?: string } {
+  public gitDiff(targetPath?: string, staged: boolean = false): { diff: string; path?: string; error?: string } {
+    return this.getGitDiff(targetPath, staged);
+  }
+
+  public gitCommit(message: string, files?: string[]): { success: boolean; output: string; error?: string } {
     if (!this.isGitRepo()) {
       return { success: false, output: '', error: 'Not a git repository' };
     }
     try {
-      execFileSync('git', ['add', '-A'], { cwd: this.workspaceRoot, encoding: 'utf-8' });
+      if (Array.isArray(files) && files.length > 0) {
+        execFileSync('git', ['add', '--', ...files], { cwd: this.workspaceRoot, encoding: 'utf-8' });
+      } else {
+        execFileSync('git', ['add', '-A'], { cwd: this.workspaceRoot, encoding: 'utf-8' });
+      }
       const out = execFileSync('git', ['commit', '-m', message], { cwd: this.workspaceRoot, encoding: 'utf-8' });
       return { success: true, output: out.trim() };
     } catch (err: any) {
@@ -510,16 +856,19 @@ export class FSTools {
 
   public gitBranch(action: 'list' | 'create' | 'delete', branchName?: string): { success: boolean; output: string | string[] } {
     try {
+      if (branchName && !/^[a-zA-Z0-9._\-/]+$/.test(branchName)) {
+        return { success: false, output: 'Invalid branch name format: only alphanumeric and . _ - / allowed.' };
+      }
       if (action === 'create' && branchName) {
-        execSync(`git checkout -b "${branchName}"`, { cwd: this.workspaceRoot, encoding: 'utf-8' });
+        execFileSync('git', ['checkout', '-b', branchName], { cwd: this.workspaceRoot, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
         return { success: true, output: `Created and switched to branch ${branchName}` };
       }
       if (action === 'delete' && branchName) {
-        execSync(`git branch -D "${branchName}"`, { cwd: this.workspaceRoot, encoding: 'utf-8' });
+        execFileSync('git', ['branch', '-D', branchName], { cwd: this.workspaceRoot, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
         return { success: true, output: `Deleted branch ${branchName}` };
       }
-      const out = execSync('git branch', { cwd: this.workspaceRoot, encoding: 'utf-8' });
-      const branches = out.split('\n').map(b => b.trim()).filter(Boolean);
+      const out = execFileSync('git', ['branch'], { cwd: this.workspaceRoot, encoding: 'utf-8', timeout: 15000, stdio: ['ignore', 'pipe', 'ignore'] });
+      const branches = out.split('\n').map(b => b.trim()).filter(Boolean).slice(0, 200);
       return { success: true, output: branches };
     } catch (err: any) {
       return { success: false, output: err.message };
@@ -528,8 +877,12 @@ export class FSTools {
 
   public gitCheckout(target: string): { success: boolean; output: string } {
     try {
-      const out = execSync(`git checkout "${target}"`, { cwd: this.workspaceRoot, encoding: 'utf-8' });
-      return { success: true, output: out || `Switched to ${target}` };
+      const sanitized = target.trim();
+      if (!sanitized || !/^[a-zA-Z0-9._\-/]+$/.test(sanitized)) {
+        return { success: false, output: 'Invalid checkout target format: only alphanumeric and . _ - / allowed.' };
+      }
+      const out = execFileSync('git', ['checkout', sanitized], { cwd: this.workspaceRoot, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
+      return { success: true, output: out || `Switched to ${sanitized}` };
     } catch (err: any) {
       return { success: false, output: err.message };
     }
@@ -537,7 +890,8 @@ export class FSTools {
 
   public gitStash(action: 'push' | 'pop' | 'list'): { success: boolean; output: string } {
     try {
-      const out = execSync(`git stash ${action === 'push' ? 'push -m "sutra-stash"' : action}`, { cwd: this.workspaceRoot, encoding: 'utf-8' });
+      const args = action === 'pop' ? ['stash', 'pop'] : action === 'list' ? ['stash', 'list'] : ['stash', 'push', '-m', 'sutra-stash'];
+      const out = execFileSync('git', args, { cwd: this.workspaceRoot, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
       return { success: true, output: out.trim() };
     } catch (err: any) {
       return { success: false, output: err.message };
@@ -545,8 +899,9 @@ export class FSTools {
   }
 
   public gitLog(limit: number = 10): Array<{ hash: string; author: string; date: string; message: string }> {
+    const boundedLimit = Math.min(Math.max(1, Math.floor(limit) || 10), 200); // Cap history dumps
     try {
-      const out = execSync(`git log -n ${limit} --pretty=format:"%h|%an|%ar|%s"`, { cwd: this.workspaceRoot, encoding: 'utf-8' });
+      const out = execSync(`git log -n ${boundedLimit} --pretty=format:"%h|%an|%ar|%s"`, { cwd: this.workspaceRoot, encoding: 'utf-8', timeout: 15000, maxBuffer: 16 * 1024 * 1024 });
       return out.split('\n').filter(Boolean).map(line => {
         const [hash, author, date, message] = line.split('|');
         return { hash: hash || '', author: author || '', date: date || '', message: message || '' };
@@ -561,54 +916,123 @@ export class FSTools {
     try {
       execSync(`npx prettier --write "${safePath}"`, { cwd: this.workspaceRoot, encoding: 'utf-8', timeout: 8000 });
       return { success: true, message: `Formatted ${filePath} with Prettier` };
-    } catch {
-      return { success: true, message: `Validated syntax for ${filePath}` };
+    } catch (err: any) {
+      return { success: false, message: `Formatting failed for ${filePath}: ${err?.stderr?.toString() || err?.message || 'Syntax error'}` };
     }
   }
 
   public lintCode(filePath?: string): { success: boolean; output: string } {
+    const cap = (text: string) => SecurityGuardrails.truncateToolOutput(text, READ_HARD_CAP_CHARS, 'Lint with a single file path for full detail.');
     try {
       const cmd = filePath ? `npx eslint "${this.resolveSafePath(filePath)}"` : 'npx eslint .';
-      const out = execSync(cmd, { cwd: this.workspaceRoot, encoding: 'utf-8', timeout: 15000 });
-      return { success: true, output: out || 'No lint errors detected.' };
+      const out = execSync(cmd, { cwd: this.workspaceRoot, encoding: 'utf-8', timeout: 60000, maxBuffer: 64 * 1024 * 1024 });
+      return { success: true, output: cap(out) || 'No lint errors detected.' };
     } catch (err: any) {
-      return { success: false, output: err.stdout || err.message };
+      return { success: false, output: cap((err.stdout || err.message || '').toString()) };
     }
   }
 
+  /**
+   * Deterministic project typecheck. Prefers the workspace's own TypeScript
+   * compiler run directly under the current Node binary — no shell, no npx,
+   * identical behavior on Windows and POSIX. Never throws; all failures come
+   * back in-band as parsed errors.
+   */
   public typecheckProject(): { success: boolean; errors: string[]; errorCount: number } {
+    const TIMEOUT_MS = 120000;
+    const parseErrors = (out: string): string[] =>
+      out.split('\n').map((l) => l.trim()).filter((l) => l.includes('error TS'));
+
+    const toResult = (err: any): { success: boolean; errors: string[]; errorCount: number } => {
+      if (err && err.killed) {
+        return { success: false, errors: ['Typecheck timed out after 120s. Try narrowing the workspace or fixing blocking errors first.'], errorCount: 1 };
+      }
+      const out = `${(err && err.stdout) || ''}\n${(err && err.stderr) || ''}`;
+      const lines = parseErrors(out);
+      if (lines.length > 0) {
+        // Keep the array bounded but report the TRUE error count.
+        return { success: false, errors: lines.slice(0, 30), errorCount: lines.length };
+      }
+      const message = ((err && err.message) || 'tsc failed').split('\n')[0];
+      return { success: false, errors: [message], errorCount: 1 };
+    };
+
+    // Preferred path: the project's local tsc invoked via node — deterministic on win32.
+    const localTsc = path.join(this.workspaceRoot, 'node_modules', 'typescript', 'bin', 'tsc');
+    if (fs.existsSync(localTsc)) {
+      try {
+        execFileSync(process.execPath, [localTsc, '--noEmit'], {
+          cwd: this.workspaceRoot,
+          encoding: 'utf-8',
+          timeout: TIMEOUT_MS,
+          maxBuffer: 64 * 1024 * 1024,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+        });
+        return { success: true, errors: [], errorCount: 0 };
+      } catch (err: any) {
+        return toResult(err);
+      }
+    }
+
+    // Fallback: npx (execSync always runs via the platform shell, which resolves
+    // the .cmd shim on win32). Use -p typescript so npm never auto-installs the dead tsc package.
     try {
-      execSync('npx tsc --noEmit', { cwd: this.workspaceRoot, encoding: 'utf-8', timeout: 15000 });
+      execSync('npx -p typescript tsc --noEmit', {
+        cwd: this.workspaceRoot,
+        encoding: 'utf-8',
+        timeout: TIMEOUT_MS,
+        maxBuffer: 64 * 1024 * 1024,
+        windowsHide: true,
+      });
       return { success: true, errors: [], errorCount: 0 };
     } catch (err: any) {
-      const out = (err.stdout || err.message || '').toString();
-      const lines = out.split('\n').filter((l: string) => l.includes('error TS'));
-      return { success: false, errors: lines.slice(0, 30), errorCount: lines.length };
+      return toResult(err);
     }
   }
 
-  public countLoc(): { totalLines: number; filesCount: number; breakdown: Record<string, { files: number; lines: number }> } {
+  public countLoc(): { totalLines: number; filesCount: number; breakdown: Record<string, { files: number; lines: number }>; extensionsTruncated?: boolean } {
     let totalLines = 0;
     let filesCount = 0;
     const breakdown: Record<string, { files: number; lines: number }> = {};
+    let extensionsTruncated = false;
+
+    const MAX_EXTENSION_KEYS = 64;
 
     const scan = (dir: string) => {
-      const items = fs.readdirSync(dir);
+      let items: string[] = [];
+      try {
+        items = fs.readdirSync(dir);
+      } catch {
+        return; // Unreadable or vanished mid-scan — skip the subtree.
+      }
       for (const item of items) {
-        if (['node_modules', '.git', 'dist', 'build', '.system_generated'].includes(item)) continue;
+        if (FS_EXCLUDED_NAMES.has(item) || item.startsWith('.system_')) continue;
         const full = path.join(dir, item);
-        const st = fs.statSync(full);
+        let st: fs.Stats;
+        try {
+          st = fs.statSync(full);
+        } catch {
+          continue; // Locked or deleted between readdir and stat (common on Windows).
+        }
         if (st.isDirectory()) {
           scan(full);
         } else {
           const ext = path.extname(item) || 'no-ext';
-          if (!breakdown[ext]) breakdown[ext] = { files: 0, lines: 0 };
+          if (!Object.prototype.hasOwnProperty.call(breakdown, ext) && Object.keys(breakdown).length < MAX_EXTENSION_KEYS) {
+            breakdown[ext] = { files: 0, lines: 0 };
+          }
+          // Lines are still counted in totals even when their extension key was dropped.
+          const bucket = breakdown[ext];
+          if (!bucket) extensionsTruncated = true;
           try {
             const count = fs.readFileSync(full, 'utf-8').split('\n').length;
             totalLines += count;
             filesCount += 1;
-            breakdown[ext].files += 1;
-            breakdown[ext].lines += count;
+            if (bucket) {
+              bucket.files += 1;
+              bucket.lines += count;
+            }
           } catch {
             // Unreadable or binary file — skip it in the line count.
           }
@@ -617,35 +1041,54 @@ export class FSTools {
     };
 
     scan(this.workspaceRoot);
-    return { totalLines, filesCount, breakdown };
+    return { totalLines, filesCount, breakdown, ...(extensionsTruncated ? { extensionsTruncated } : {}) };
   }
 
-  public inspectSqlite(dbPath: string = 'server/dev.sqlite'): { tables: Array<{ name: string; columns: any[] }> } {
+  public inspectSqlite(dbPath: string = 'server/dev.sqlite'): { tables: Array<{ name: string; columns: any[] }>; truncated?: boolean } {
     const safe = this.resolveSafePath(dbPath);
     if (!fs.existsSync(safe)) return { tables: [] };
+    let db: Database.Database | null = null;
     try {
-      const db = new Database(safe, { readonly: true });
+      db = new Database(safe, { readonly: true });
+      const MAX_TABLES = 100;
       const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as any[];
-      const result = tables.map(t => {
-        const cols = db.prepare(`PRAGMA table_info("${t.name}")`).all();
+      const result = tables.slice(0, MAX_TABLES).map(t => {
+        const cols = db!.prepare(`PRAGMA table_info("${t.name}")`).all();
         return { name: t.name, columns: cols };
       });
-      db.close();
-      return { tables: result };
+      return { tables: result, ...(tables.length > MAX_TABLES ? { truncated: true } : {}) };
     } catch {
       return { tables: [] };
+    } finally {
+      try {
+        db?.close();
+      } catch {
+        // Already closed — nothing to do.
+      }
     }
   }
 
-  public querySqlite(sql: string, dbPath: string = 'server/dev.sqlite'): { rows: any[]; count: number } {
+  /** Rows are capped at 200 in the reply; `count` reports the TRUE matched row count. */
+  public querySqlite(sql: string, dbPath: string = 'server/dev.sqlite'): { rows: any[]; count: number; truncated?: boolean } {
     const safe = this.resolveSafePath(dbPath);
+    const MAX_ROWS = 200;
+    let db: Database.Database | null = null;
     try {
-      const db = new Database(safe);
-      const rows = db.prepare(sql).all();
-      db.close();
-      return { rows, count: rows.length };
+      db = new Database(safe);
+      const allRows = db.prepare(sql).all();
+      return {
+        rows: allRows.slice(0, MAX_ROWS),
+        count: allRows.length,
+        ...(allRows.length > MAX_ROWS ? { truncated: true } : {}),
+      };
     } catch (err: any) {
       return { rows: [{ error: err.message }], count: 0 };
+    } finally {
+      try {
+        db?.close();
+      } catch {
+        // Already closed — nothing to do.
+      }
     }
   }
 
@@ -676,7 +1119,6 @@ export class FSTools {
 
   public astGrep(pattern: string, language?: string): Array<{ file: string; line: number; match: string; context: string }> {
     const results: Array<{ file: string; line: number; match: string; context: string }> = [];
-    const exclude = ['.git', 'node_modules', '.next', 'dist', 'build', 'coverage', '.DS_Store'];
     const extMap: Record<string, string[]> = {
       typescript: ['.ts', '.tsx'],
       javascript: ['.js', '.jsx', '.mjs', '.cjs'],
@@ -702,9 +1144,14 @@ export class FSTools {
 
     const traverse = (dir: string) => {
       if (results.length >= 120) return;
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      let entries: fs.Dirent[] = [];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return; // Unreadable or vanished mid-walk — skip the subtree.
+      }
       for (const entry of entries) {
-        if (exclude.includes(entry.name)) continue;
+        if (FS_EXCLUDED_NAMES.has(entry.name)) continue;
         const full = path.join(dir, entry.name);
         try {
           if (entry.isDirectory()) {
@@ -749,6 +1196,8 @@ export class FSTools {
     interfaces: Array<{ name: string; line: number }>;
     exports: Array<{ name: string; line: number }>;
     imports: Array<{ module: string; line: number }>;
+    truncated?: boolean;
+    filesScanned?: number;
   } {
     const functions: Array<{ name: string; line: number; kind: string }> = [];
     const classes: Array<{ name: string; line: number }> = [];
@@ -756,14 +1205,31 @@ export class FSTools {
     const exports: Array<{ name: string; line: number }> = [];
     const imports: Array<{ module: string; line: number }> = [];
 
+    // Workspace-wide scans can surface thousands of symbols — cap each bucket.
+    const CAP_PER_KIND = 200;
+    let truncated = false;
+    let filesScanned = 0;
+    const pushCapped = <T>(arr: T[], item: T): void => {
+      if (arr.length >= CAP_PER_KIND) {
+        truncated = true;
+        return;
+      }
+      arr.push(item);
+    };
+
     const targetFiles: string[] = [];
     if (filePath) {
       targetFiles.push(this.resolveSafePath(filePath));
     } else {
       const traverse = (dir: string) => {
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        let entries: fs.Dirent[] = [];
+        try {
+          entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+          return; // Unreadable or vanished mid-walk — skip the subtree.
+        }
         for (const entry of entries) {
-          if (['node_modules', '.git', 'dist', 'build', '.next'].includes(entry.name)) continue;
+          if (FS_EXCLUDED_NAMES.has(entry.name)) continue;
           const full = path.join(dir, entry.name);
           try {
             if (entry.isDirectory()) traverse(full);
@@ -786,33 +1252,42 @@ export class FSTools {
 
     for (const file of targetFiles.slice(0, 40)) {
       try {
+        filesScanned += 1;
         const content = fs.readFileSync(file, 'utf-8');
         const lines = content.split('\n');
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i];
           const fn = line.match(functionRe);
-          if (fn) functions.push({ name: fn[1], line: i + 1, kind: 'function' });
+          if (fn) pushCapped(functions, { name: fn[1], line: i + 1, kind: 'function' });
           const arrow = line.match(arrowFnRe);
-          if (arrow && !fn) functions.push({ name: arrow[1], line: i + 1, kind: 'arrow' });
+          if (arrow && !fn) pushCapped(functions, { name: arrow[1], line: i + 1, kind: 'arrow' });
           const m = line.match(methodRe);
           if (m && !fn && !arrow && !line.includes('=') && !line.includes('if') && !line.includes('for') && !line.includes('while') && !line.includes('switch') && !line.includes('catch')) {
-            functions.push({ name: m[1], line: i + 1, kind: 'method' });
+            pushCapped(functions, { name: m[1], line: i + 1, kind: 'method' });
           }
           const cl = line.match(classRe);
-          if (cl) classes.push({ name: cl[1], line: i + 1 });
+          if (cl) pushCapped(classes, { name: cl[1], line: i + 1 });
           const iface = line.match(interfaceRe);
-          if (iface) interfaces.push({ name: iface[2], line: i + 1 });
+          if (iface) pushCapped(interfaces, { name: iface[2], line: i + 1 });
           const ex = line.match(exportRe);
-          if (ex && ex[1]) exports.push({ name: ex[1], line: i + 1 });
+          if (ex && ex[1]) pushCapped(exports, { name: ex[1], line: i + 1 });
           const imp = line.match(importRe);
-          if (imp) imports.push({ module: imp[1], line: i + 1 });
+          if (imp) pushCapped(imports, { module: imp[1], line: i + 1 });
         }
       } catch {
         // File unreadable or deleted mid-scan — skip it.
       }
     }
 
-    return { functions, classes, interfaces, exports, imports };
+    return {
+      functions,
+      classes,
+      interfaces,
+      exports,
+      imports,
+      ...(truncated ? { truncated } : {}),
+      ...(targetFiles.length > 40 ? { filesScanned } : {}),
+    };
   }
 
   public findDeadCode(): {
@@ -823,9 +1298,14 @@ export class FSTools {
     const allSymbols = this.extractSymbols();
     const allFiles: string[] = [];
     const traverse = (dir: string) => {
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      let entries: fs.Dirent[] = [];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return; // Unreadable or vanished mid-walk — skip the subtree.
+      }
       for (const entry of entries) {
-        if (['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '.turbo'].includes(entry.name)) continue;
+        if (FS_EXCLUDED_NAMES.has(entry.name)) continue;
         const full = path.join(dir, entry.name);
         try {
           if (entry.isDirectory()) traverse(full);

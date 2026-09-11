@@ -16,8 +16,6 @@ export default defineConfig({
       'dist/**',
       'dist-exe/**',
       'vendor/**',
-      // LSP tests require external binaries (typescript-language-server via npx)
-      'src/test/lspManager.test.ts',
       // Monaco can't be loaded in jsdom — needs full browser environment
       'src/test/CodeEditor.test.tsx',
       // App test transitively imports Monaco through nested components

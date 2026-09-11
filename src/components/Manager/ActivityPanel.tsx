@@ -1,19 +1,26 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
+  ArrowLeft,
+  Ban,
   BookOpen,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Circle,
+  Clock,
   Film,
   FileCode,
   Image as ImageIcon,
   ListChecks,
+  Loader2,
   Palette,
   Play,
-  Plus,
   PanelRightClose,
   PanelRightOpen,
+  ShieldAlert,
+  Sparkles,
+  Square,
   Terminal,
   Users,
   Volume2,
@@ -23,6 +30,16 @@ import { useIDEStore } from '../../stores/ideStore.js';
 import { ToolCallPayload } from '../../types/ide.js';
 import { MarkdownRenderer } from '../Agent/MarkdownRenderer.js';
 import { deriveAgentStatus } from '../../utils/agentStatus.js';
+import { useResizablePanel } from '../../hooks/useResizablePanel.js';
+import { PanelResizeHandle } from '../Layout/PanelResizeHandle.js';
+import {
+  isTerminalRunStatus,
+  mirrorServerRunRows,
+  normalizeServerRunStatus,
+  useActiveRunState,
+  useRunRegistry,
+  type RunStatus,
+} from '../../stores/runRegistry.js';
 
 const FILE_TOOLS = ['write_file', 'edit_file', 'delete_file'];
 const ARTIFACT_TOOLS = ['generate_image_asset', 'generate_svg_asset', 'generate_video_asset', 'generate_audio_asset'];
@@ -32,19 +49,21 @@ const basename = (path: string): string => path.split(/[/\\]/).pop() || path;
 interface CollapsibleSectionProps {
   title: string;
   count?: number;
+  /** Expanded by default; pass false for secondary sections (content stays reachable). */
+  defaultOpen?: boolean;
   children: React.ReactNode;
 }
 
 /** Small-caps collapsible section used for every panel group. */
-const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ title, count, children }) => {
-  const [isOpen, setIsOpen] = useState(true);
+const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ title, count, defaultOpen = true, children }) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
   return (
     <section aria-label={title}>
       <button
         type="button"
         onClick={() => setIsOpen((open) => !open)}
         aria-expanded={isOpen}
-        className="w-full flex items-center gap-1 py-0.5 text-left cursor-pointer group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 rounded"
+        className="w-full flex items-center gap-1 py-0.5 text-left cursor-pointer group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-border rounded"
       >
         {isOpen ? (
           <ChevronDown className="w-3 h-3 text-obsidian-inkMuted shrink-0" aria-hidden="true" />
@@ -69,19 +88,16 @@ const EmptyLine: React.FC<{ label: string }> = ({ label }) => (
   </div>
 );
 
-/** Neutral status dot — obsidian neutrals; red strictly for failures. */
-const StatusDot: React.FC<{ tone: 'idle' | 'active' | 'attention' | 'failed' }> = ({ tone }) => (
-  <span
-    aria-hidden="true"
-    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-      tone === 'failed'
-        ? 'bg-red-400'
-        : tone === 'active' || tone === 'attention'
-          ? 'bg-obsidian-inkPrimary'
-          : 'bg-obsidian-inkMuted opacity-60'
-    }`}
-  />
-);
+/** Clean micro-status indicator — semantic micro-icons without random noisy dots. */
+const StatusDot: React.FC<{ tone: 'idle' | 'active' | 'attention' | 'failed' }> = ({ tone }) => {
+  if (tone === 'failed') {
+    return <ShieldAlert className="w-3 h-3 text-obsidian-danger shrink-0" aria-hidden="true" />;
+  }
+  if (tone === 'active' || tone === 'attention') {
+    return <Loader2 className="w-3 h-3 animate-spin text-obsidian-inkSecondary shrink-0" aria-hidden="true" />;
+  }
+  return <CheckCircle2 className="w-3 h-3 text-obsidian-inkMuted opacity-60 shrink-0" aria-hidden="true" />;
+};
 
 const toolFailed = (tc: ToolCallPayload): boolean =>
   tc.status === 'failed' || Boolean(tc.error) || Boolean(tc.result?.error || tc.result?.failed);
@@ -104,13 +120,6 @@ interface ArtifactEntry {
 
 const VISIBLE_ARTIFACTS = 4;
 
-/** 94000 -> "94k"; 128000000 -> "128M" */
-const fmtK = (n: number): string => {
-  if (n >= 1_000_000) return `${Math.round(n / 1_000_000)}M`;
-  if (n >= 1000) return `${Math.round(n / 1000)}k`;
-  return String(n);
-};
-
 /** 4200 -> "4s"; 82000 -> "1m 22s" */
 const fmtDuration = (ms: number): string => {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -131,7 +140,7 @@ const fmtElapsed = (totalSeconds: number): string => {
 interface ServerArtifact {
   id: string;
   name: string;
-  type: 'plan' | 'implementation' | 'design' | 'asset' | 'verification' | 'doc';
+  type: 'plan' | 'implementation' | 'design' | 'asset' | 'verification' | 'doc' | 'findings' | 'audit';
   status: 'draft' | 'in_progress' | 'done';
   content: string;
   updatedAt: number;
@@ -144,75 +153,52 @@ const ARTIFACT_TYPE_ICONS: Record<ServerArtifact['type'], typeof FileCode> = {
   asset: ImageIcon,
   verification: CheckCircle2,
   doc: BookOpen,
+  findings: ShieldAlert,
+  audit: ShieldAlert,
 };
 
-/** Trackable work artifacts (plans, implementations, verification) from .sutra/artifacts. */
-const ArtifactViewer: React.FC<{ artifact: ServerArtifact; onClose: () => void }> = ({ artifact, onClose }) => (
-  <div
-    className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-6"
-    role="dialog"
-    aria-label={`Artifact: ${artifact.name}`}
-    onClick={onClose}
-  >
-    <div
-      className="w-full max-w-2xl max-h-[80vh] rounded-xl border border-obsidian-border bg-obsidian-surface2 shadow-elevation flex flex-col overflow-hidden"
-      onClick={(e) => e.stopPropagation()}
+/** Shared header for the in-sidebar detail view (back arrow + title + meta). */
+const DetailHeader: React.FC<{ title: string; meta?: string; onBack: () => void }> = ({ title, meta, onBack }) => (
+  <header className="h-10 flex items-center gap-2 px-2 border-b border-obsidian-hairline shrink-0">
+    <button
+      type="button"
+      onClick={onBack}
+      aria-label="Back to activity list"
+      title="Back"
+      className="p-1.5 rounded-lg text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-border shrink-0"
     >
-      <header className="flex items-center justify-between px-4 py-3 border-b border-obsidian-hairline shrink-0">
-        <div className="min-w-0">
-          <div className="text-sm font-semibold text-obsidian-inkPrimary truncate">{artifact.name}</div>
-          <div className="text-[10px] font-mono uppercase tracking-wider text-obsidian-inkMuted">
-            {artifact.type} · {artifact.status}
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close artifact"
-          className="p-1.5 rounded-lg text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-white/[0.06] transition-colors cursor-pointer"
-        >
-          <X className="w-4 h-4" aria-hidden="true" />
-        </button>
-      </header>
-      <div className="flex-1 overflow-y-auto p-4 text-sm">
-        <MarkdownRenderer content={artifact.content} />
-      </div>
+      <ArrowLeft className="w-4 h-4" aria-hidden="true" />
+    </button>
+    <div className="min-w-0 flex-1">
+      <div className="text-xs font-medium text-obsidian-inkPrimary truncate leading-tight">{title}</div>
+      {meta && (
+        <div className="text-[9px] font-mono uppercase tracking-wider text-obsidian-inkMuted truncate">{meta}</div>
+      )}
+    </div>
+  </header>
+);
+
+/** In-sidebar readers — clicking an artifact swaps the panel body instead of a modal. */
+const ArtifactDetailView: React.FC<{ artifact: ServerArtifact; onBack: () => void }> = ({ artifact, onBack }) => (
+  <div className="flex-1 flex flex-col min-h-0" role="region" aria-label={`Artifact: ${artifact.name}`}>
+    <DetailHeader title={artifact.name} meta={`${artifact.type} · ${artifact.status}`} onBack={onBack} />
+    <div className="flex-1 overflow-y-auto px-3 py-3 min-h-0">
+      <MarkdownRenderer content={artifact.content} />
     </div>
   </div>
 );
 
-/** Lightbox preview for generated media artifacts (images, video, audio). */
-const MediaViewer: React.FC<{ artifact: ArtifactEntry; onClose: () => void }> = ({ artifact, onClose }) => (
-  <div
-    className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-6"
-    role="dialog"
-    aria-label={`Preview: ${artifact.name}`}
-    onClick={onClose}
-  >
-    <div
-      className="w-full max-w-2xl rounded-xl border border-obsidian-border bg-obsidian-surface2 shadow-elevation overflow-hidden"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <header className="flex items-center justify-between px-4 py-3 border-b border-obsidian-hairline shrink-0">
-        <div className="min-w-0 text-sm font-semibold text-obsidian-inkPrimary truncate">{artifact.name}</div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close preview"
-          className="p-1.5 rounded-lg text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-white/[0.06] transition-colors cursor-pointer"
-        >
-          <X className="w-4 h-4" aria-hidden="true" />
-        </button>
-      </header>
-      <div className="p-4 bg-obsidian-canvas flex items-center justify-center">
-        {artifact.kind === 'video' ? (
-          <video src={artifact.url!} controls autoPlay loop muted playsInline className="max-h-[60vh] w-full bg-black object-contain" />
-        ) : artifact.kind === 'audio' ? (
-          <audio src={artifact.url!} controls className="w-full" />
-        ) : (
-          <img src={artifact.url!} alt={artifact.name} className="max-h-[60vh] object-contain" />
-        )}
-      </div>
+const MediaDetailView: React.FC<{ artifact: ArtifactEntry; onBack: () => void }> = ({ artifact, onBack }) => (
+  <div className="flex-1 flex flex-col min-h-0" role="region" aria-label={`Preview: ${artifact.name}`}>
+    <DetailHeader title={artifact.name} onBack={onBack} />
+    <div className="flex-1 min-h-0 p-3 bg-obsidian-canvas flex items-center justify-center overflow-hidden">
+      {artifact.kind === 'video' ? (
+        <video src={artifact.url!} controls autoPlay loop muted playsInline className="max-h-full w-full bg-black object-contain rounded-lg" />
+      ) : artifact.kind === 'audio' ? (
+        <audio src={artifact.url!} controls className="w-full" />
+      ) : (
+        <img src={artifact.url!} alt={artifact.name} className="max-w-full max-h-full object-contain rounded-lg" />
+      )}
     </div>
   </div>
 );
@@ -220,14 +206,20 @@ const MediaViewer: React.FC<{ artifact: ArtifactEntry; onClose: () => void }> = 
 export const ActivityPanel: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [showAllArtifacts, setShowAllArtifacts] = useState(false);
+  const { width, isResizing, handleProps } = useResizablePanel({
+    storageKey: 'sutra-activity-panel-width',
+    defaultWidth: 320,
+    minWidth: 260,
+    maxWidthRatio: 0.5,
+  });
   const agentMessages = useIDEStore((s) => s.agentMessages);
   const isAgentGenerating = useIDEStore((s) => s.isAgentGenerating);
   const activeModelName = useIDEStore((s) => s.activeModel?.name);
   const pendingAgentQuestion = useIDEStore((s) => s.pendingAgentQuestion);
   const subagents = useIDEStore((s) => s.subagents);
   const assets = useIDEStore((s) => s.assets);
-  const retryLog = useIDEStore((s) => s.retryLog);
   const lastRunUsage = useIDEStore((s) => s.lastRunUsage);
+  const harnessMode = useIDEStore((s) => s.harnessMode);
 
   // Ticking clock so subagent elapsed timers stay live while anything runs
   const [, setTick] = useState(0);
@@ -242,6 +234,17 @@ export const ActivityPanel: React.FC = () => {
   const [workArtifacts, setWorkArtifacts] = useState<ServerArtifact[]>([]);
   const [viewingArtifact, setViewingArtifact] = useState<ServerArtifact | null>(null);
   const [viewingMedia, setViewingMedia] = useState<ArtifactEntry | null>(null);
+  useEffect(() => {
+    if (!viewingArtifact && !viewingMedia) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setViewingArtifact(null);
+        setViewingMedia(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [viewingArtifact, viewingMedia]);
   useEffect(() => {
     const load = () =>
       fetch('/api/artifacts')
@@ -266,6 +269,7 @@ export const ActivityPanel: React.FC = () => {
   }
   const [managedProcesses, setManagedProcesses] = useState<ManagedProcessRow[]>([]);
   useEffect(() => {
+    if (collapsed) return;
     const load = () =>
       fetch('/api/processes')
         .then((r) => r.json())
@@ -274,7 +278,7 @@ export const ActivityPanel: React.FC = () => {
     load();
     const interval = setInterval(load, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [collapsed]);
 
   const stopProcess = async (id: string) => {
     try {
@@ -282,6 +286,26 @@ export const ActivityPanel: React.FC = () => {
       setManagedProcesses((list) => list.map((p) => (p.id === id ? { ...p, status: 'stopped' } : p)));
     } catch {
       // Poll will reflect reality
+    }
+  };
+
+  // Bulk stop for every live process — mirrors the chat's stop-all control.
+  const stopAllProcesses = async () => {
+    const activeIds = managedProcesses
+      .filter((p) => p.status !== 'stopped' && p.status !== 'exited')
+      .map((p) => p.id);
+    if (activeIds.length === 0) return;
+    try {
+      await fetch('/api/tasks/kill-all', { method: 'POST' });
+    } catch {
+      // Endpoint unavailable — fall back to stopping the known rows one by one.
+      await Promise.allSettled(
+        activeIds.map((id) => fetch(`/api/processes/${encodeURIComponent(id)}/stop`, { method: 'POST' }))
+      );
+    } finally {
+      setManagedProcesses((list) =>
+        list.map((p) => (p.status !== 'stopped' && p.status !== 'exited' ? { ...p, status: 'stopped' as const } : p))
+      );
     }
   };
 
@@ -298,6 +322,8 @@ export const ActivityPanel: React.FC = () => {
       if (!FILE_TOOLS.includes(tc.tool)) continue;
       const path = typeof tc.params?.path === 'string' ? tc.params.path : '';
       if (!path) continue;
+      const norm = path.replace(/\\/g, '/');
+      if (norm.startsWith('.sutra') || norm.includes('/.sutra/') || norm === 'task_plan.md' || norm.endsWith('/task_plan.md')) continue;
       if (!byPath.has(path)) {
         order.push(path);
         byPath.set(path, {
@@ -349,13 +375,73 @@ export const ActivityPanel: React.FC = () => {
   const latestCommand =
     backgroundTasks.length > 0 ? String(backgroundTasks[backgroundTasks.length - 1].params?.command || '') : '';
 
-  const assistantRounds = agentMessages.filter((m) => m.role === 'assistant' && m.id !== 'msg-welcome').length;
+  // Extract the latest Task Execution Plan from transcript tool calls in real time
+  const latestTaskPlan = useMemo(() => {
+    const planCalls = allToolCalls.filter((tc) => tc.tool === 'write_todos' || tc.tool === 'todo_write');
+    if (planCalls.length === 0) return null;
+    const last = planCalls[planCalls.length - 1];
+    const rawTodos = (
+      Array.isArray(last.params?.todos) ? last.params.todos :
+      Array.isArray(last.result?.todos) ? last.result.todos : []
+    );
+    const baseTodos: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> = rawTodos
+      .filter((t: any) => t && typeof t.content === 'string')
+      .map((t: any) => ({
+        content: String(t.content),
+        status: (['pending', 'in_progress', 'completed'].includes(t.status) ? t.status : 'pending') as 'pending' | 'in_progress' | 'completed',
+      }));
+    if (baseTodos.length === 0) return null;
+
+    const completedFileSet = new Set(
+      fileChanges.filter((f) => !f.failed).map((f) => f.path.toLowerCase().replace(/\\/g, '/'))
+    );
+    const completedCommandSet = backgroundTasks
+      .filter((tc) => toolCompleted(tc))
+      .map((tc) => String(tc.params?.command || '').toLowerCase());
+
+    const todos = baseTodos.map((t) => {
+      if (t.status === 'completed') return t;
+      const lower = t.content.toLowerCase().replace(/\\/g, '/');
+      for (const f of completedFileSet) {
+        const bname = f.split('/').pop();
+        if (lower.includes(f) || (bname && bname.length > 3 && lower.includes(bname))) {
+          return { ...t, status: 'completed' as const };
+        }
+      }
+      if (lower.includes('test') || lower.includes('verify') || lower.includes('run')) {
+        const hasMatchingRun = completedCommandSet.some(
+          (cmd) => cmd.includes('test') || cmd.includes('jest') || cmd.includes('vitest') || cmd.includes('build') || cmd.includes('check')
+        );
+        if (hasMatchingRun) {
+          return { ...t, status: 'completed' as const };
+        }
+      }
+      return t;
+    });
+
+    const doneCount = todos.filter((t: { status: string }) => t.status === 'completed').length;
+    const inProgressCount = todos.filter((t: { status: string }) => t.status === 'in_progress').length;
+    const totalCount = todos.length;
+    const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+    return { todos, doneCount, inProgressCount, totalCount, progressPct };
+  }, [allToolCalls, fileChanges, backgroundTasks]);
+
   const pendingApprovals = useIDEStore((s) => s.pendingApprovals);
-  const agentStatus = deriveAgentStatus({
-    isGenerating: isAgentGenerating,
-    hasPendingQuestion: Boolean(pendingAgentQuestion),
-    hasPendingApprovals: pendingApprovals.length > 0,
-  });
+  // Run lifecycle derives from the shared registry first — every surface reads
+  // the same verdict, so the header can never disagree with Recent Runs.
+  const activeRun = useActiveRunState();
+  const runsMap = useRunRegistry((s) => s.runs);
+  const activeRunStatus = activeRun?.status;
+  const agentStatus =
+    activeRunStatus === 'running' || activeRunStatus === 'queued'
+      ? deriveAgentStatus({ isGenerating: true })
+      : activeRunStatus === 'waiting_for_input'
+        ? deriveAgentStatus({ hasPendingQuestion: true })
+        : deriveAgentStatus({
+            isGenerating: isAgentGenerating,
+            hasPendingQuestion: Boolean(pendingAgentQuestion),
+            hasPendingApprovals: pendingApprovals.length > 0,
+          });
   const visibleArtifacts = showAllArtifacts ? artifacts : artifacts.slice(0, VISIBLE_ARTIFACTS);
   const statusTone: 'idle' | 'active' | 'attention' =
     agentStatus.key === 'waiting' ? 'attention' : agentStatus.key === 'working' ? 'active' : 'idle';
@@ -378,6 +464,53 @@ export const ActivityPanel: React.FC = () => {
       .then((d) => setRecentRuns(Array.isArray(d.runs) ? d.runs : []))
       .catch(() => undefined);
   }, [isAgentGenerating]);
+
+  // Run-end edge marker: lets the next idle refetch link the just-finished run
+  // to its newest audit row even when the server write races the socket close.
+  const prevGeneratingRef = useRef(isAgentGenerating);
+  const justEndedAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (prevGeneratingRef.current && !isAgentGenerating) justEndedAtRef.current = Date.now();
+    prevGeneratingRef.current = isAgentGenerating;
+  }, [isAgentGenerating]);
+
+  // Reconcile every displayed row through the registry (single source of truth):
+  // 1) server terminal outcomes fill absent/non-terminal entries;
+  // 2) the run that JUST ended inherits the live session's verdict (cancel feedback);
+  // 3) zombie liveness claims (crash/reload leftovers, historical 'running')
+  //    coerce to completed so nothing stays visually active forever.
+  useEffect(() => {
+    if (isAgentGenerating || recentRuns.length === 0) return;
+    const registry = useRunRegistry.getState();
+
+    // 1) Mirror server truth; stale server rows claiming 'running' while idle
+    //    coerce to completed inside the mirror helper.
+    mirrorServerRunRows(recentRuns, isAgentGenerating, justEndedAtRef.current);
+
+    // 2) The run that JUST ended inherits the live session's verdict so cancel
+    //    feedback lands even when the server write races the socket close.
+    if (justEndedAtRef.current) {
+      justEndedAtRef.current = null;
+      const liveKey = registry.activeSessionId;
+      const live = liveKey ? registry.getRun(liveKey) : undefined;
+      if (live && isTerminalRunStatus(live.status)) {
+        const newest = recentRuns[0];
+        // Only rows started at/after the live run qualify as its audit record
+        if (newest.startedAt >= live.startedAt - 1000) {
+          const target = registry.getRun(newest.id);
+          if (!target || !isTerminalRunStatus(target.status)) {
+            registry.markRun(newest.id, live.status, {
+              startedAt: newest.startedAt,
+              endedAt: newest.finishedAt ?? Date.now(),
+            });
+          }
+        }
+      }
+    }
+
+    // 3) Retire any remaining zombie liveness claims (crash/reload leftovers).
+    useRunRegistry.getState().reconcile([]);
+  }, [recentRuns, isAgentGenerating]);
 
   // Expandable per-run event timeline (fetched lazily from /api/runs/:id)
   interface RunEventRow {
@@ -416,47 +549,8 @@ export const ActivityPanel: React.FC = () => {
     }
   };
 
-  // What Astra remembers across runs — visible, teachable, correctable.
-  interface MemoryRow {
-    id: number;
-    kind: 'lesson' | 'preference' | 'fact';
-    content: string;
-    useCount: number;
-  }
-  const [memories, setMemories] = useState<MemoryRow[]>([]);
-  const [memoryDraft, setMemoryDraft] = useState('');
-  const loadMemories = () =>
-    fetch('/api/memory')
-      .then((r) => r.json())
-      .then((d) => setMemories(Array.isArray(d.memories) ? d.memories : []))
-      .catch(() => undefined);
-  useEffect(() => {
-    if (isAgentGenerating) return;
-    loadMemories();
-  }, [isAgentGenerating]);
-  const teachMemory = async () => {
-    const content = memoryDraft.trim();
-    if (!content) return;
-    try {
-      await fetch('/api/memory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, kind: 'preference' }),
-      });
-      setMemoryDraft('');
-      await loadMemories();
-    } catch {
-      // Optimistic silence — next refresh reflects reality
-    }
-  };
-  const forgetMemory = async (id: number) => {
-    try {
-      await fetch(`/api/memory/${id}`, { method: 'DELETE' });
-      setMemories((list) => list.filter((m) => m.id !== id));
-    } catch {
-      // Next refresh reflects reality
-    }
-  };
+  // Memory stays server-side only — what Astra learns is never surfaced in the
+  // panel (user directive), so there is no memory section here by design.
 
   if (collapsed) {
     return (
@@ -466,7 +560,7 @@ export const ActivityPanel: React.FC = () => {
           onClick={() => setCollapsed(false)}
           aria-label="Expand activity panel"
           title="Expand activity panel"
-          className="mt-2 p-2 rounded-lg text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-white/[0.06] transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+          className="mt-2 p-2 rounded-lg text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-border"
         >
           <PanelRightOpen className="w-4 h-4" aria-hidden="true" />
         </button>
@@ -478,7 +572,11 @@ export const ActivityPanel: React.FC = () => {
   }
 
   return (
-    <aside className="hidden lg:flex w-[320px] min-w-[320px] max-w-[320px] h-full flex-col bg-obsidian-surface1 border-l border-obsidian-hairline shrink-0 select-none">
+    <aside
+      style={{ width: `${width}px` }}
+      className="hidden lg:flex h-full flex-col bg-obsidian-surface1 border-l border-obsidian-hairline shrink-0 select-none relative"
+    >
+      <PanelResizeHandle handleProps={handleProps} isResizing={isResizing} label="Resize activity panel" />
       {/* Panel header */}
       <header className="h-10 flex items-center justify-between px-3 border-b border-obsidian-hairline shrink-0">
         <span className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-obsidian-inkMuted">
@@ -490,20 +588,39 @@ export const ActivityPanel: React.FC = () => {
           onClick={() => setCollapsed(true)}
           aria-label="Collapse activity panel"
           title="Collapse activity panel"
-          className="p-1.5 rounded-lg text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-white/[0.06] transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+          className="p-1.5 rounded-lg text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-border"
         >
           <PanelRightClose className="w-4 h-4" aria-hidden="true" />
         </button>
       </header>
 
+      {viewingArtifact ? (
+        <ArtifactDetailView artifact={viewingArtifact} onBack={() => setViewingArtifact(null)} />
+      ) : viewingMedia && viewingMedia.url ? (
+        <MediaDetailView artifact={viewingMedia} onBack={() => setViewingMedia(null)} />
+      ) : (
+      <>
       {/* Internally scrolling body — fixed outer width, no horizontal shift */}
       <div className="flex-1 overflow-y-auto px-2.5 py-3 space-y-4 min-h-0">
-        {/* Live Status Summary */}
+        {/* Live Status Summary — deliberately slim: status line, model, context bar */}
         <CollapsibleSection title="Status">
           <div className="rounded-lg border border-obsidian-hairline bg-obsidian-surface2 p-2.5 space-y-1.5">
             <div className="flex items-center gap-2">
               <StatusDot tone={statusTone} />
               <span className="text-xs text-obsidian-inkPrimary">{agentStatus.label}</span>
+              {/* Cancellation feedback: muted chip for the session whose run was
+                  stopped; stays until the next run starts (registry verdict). */}
+              {activeRun?.status === 'cancelled' && (
+                <span
+                  role="status"
+                  aria-label="Last run cancelled"
+                  title="Last run was cancelled before completion — send a new prompt to start again"
+                  className="ml-auto flex shrink-0 items-center gap-1 rounded-md border border-obsidian-border bg-obsidian-surface1 px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider text-obsidian-inkSecondary"
+                >
+                  <Ban className="w-3 h-3 text-obsidian-inkMuted" aria-hidden="true" />
+                  Cancelled
+                </span>
+              )}
             </div>
             <div className="flex items-center justify-between text-[11px]">
               <span className="font-mono uppercase tracking-wider text-[10px] text-obsidian-inkMuted">Model</span>
@@ -512,103 +629,146 @@ export const ActivityPanel: React.FC = () => {
               </span>
             </div>
             <div className="flex items-center justify-between text-[11px]">
-              <span className="font-mono uppercase tracking-wider text-[10px] text-obsidian-inkMuted">Rounds</span>
-              <span className="font-mono text-obsidian-inkSecondary">{assistantRounds}</span>
+              <span className="font-mono uppercase tracking-wider text-[10px] text-obsidian-inkMuted">Harness</span>
+              <span className="truncate pl-2 text-obsidian-inkSecondary flex items-center gap-1">
+                {harnessMode === 'avo' ? (
+                  <>
+                    <Sparkles className="w-3 h-3 text-obsidian-inkPrimary inline" />
+                    <span>AVO Pro</span>
+                  </>
+                ) : (
+                  <span>Standard</span>
+                )}
+              </span>
             </div>
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="font-mono uppercase tracking-wider text-[10px] text-obsidian-inkMuted">Tool calls</span>
-              <span className="font-mono text-obsidian-inkSecondary">{allToolCalls.length}</span>
-            </div>
-            {lastRunUsage && (
-              <div
-                className="flex items-center justify-between text-[11px]"
-                title={`${lastRunUsage.contextUsed} of ${lastRunUsage.contextWindow} tokens used`}
-              >
-                <span className="font-mono uppercase tracking-wider text-[10px] text-obsidian-inkMuted">Context</span>
-                <span className="font-mono text-obsidian-inkSecondary">
-                  {fmtK(lastRunUsage.contextRemaining)} / {fmtK(lastRunUsage.contextWindow)} left
-                </span>
-              </div>
-            )}
+            {lastRunUsage && lastRunUsage.contextWindow > 0 && (() => {
+              const usedPct = Math.min(100, Math.max(0, (lastRunUsage.contextUsed / lastRunUsage.contextWindow) * 100));
+              return (
+                <div
+                  title={`${lastRunUsage.contextUsed} of ${lastRunUsage.contextWindow} tokens used`}
+                  className="space-y-1"
+                >
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-mono uppercase tracking-wider text-[10px] text-obsidian-inkMuted">Context</span>
+                    <span className="font-mono text-obsidian-inkSecondary">{Math.round(usedPct)}% used</span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label="Context window usage"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(usedPct)}
+                    className="h-1 rounded-full bg-obsidian-surface2 overflow-hidden"
+                  >
+                    <div
+                      className="h-full rounded-full bg-obsidian-inkSecondary transition-[width] duration-300"
+                      style={{ width: `${usedPct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </CollapsibleSection>
 
-        {/* Persistent memory — what Astra remembers, teachable and correctable */}
-        <CollapsibleSection title="What Astra Remembers" count={memories.length}>
-          {memories.length === 0 ? (
-            <EmptyLine label="Nothing remembered yet — failures become lessons here" />
-          ) : (
-            memories.map((memory) => (
-              <div
-                key={memory.id}
-                className="group flex items-start gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors duration-150"
-                title={`Used ${memory.useCount}x · ${memory.kind}`}
-              >
-                <span
-                  className={`shrink-0 mt-0.5 px-1 py-px rounded text-[8px] font-mono uppercase tracking-wider border ${
-                    memory.kind === 'lesson'
-                      ? 'border-obsidian-hairline text-obsidian-inkSecondary'
-                      : 'border-obsidian-hairline text-obsidian-inkMuted'
-                  }`}
-                >
-                  {memory.kind === 'preference' ? 'pref' : memory.kind}
+        {/* Task Plan (Live Dynamic Checklist) */}
+        {latestTaskPlan && (
+          <CollapsibleSection
+            title="Task Plan"
+            count={latestTaskPlan.totalCount}
+            defaultOpen={true}
+          >
+            <div className="rounded-lg border border-obsidian-hairline bg-obsidian-surface2 p-2.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-obsidian-inkMuted">
+                  {latestTaskPlan.doneCount}/{latestTaskPlan.totalCount} Completed
                 </span>
-                <span className="flex-1 min-w-0 text-[10px] leading-snug text-obsidian-inkSecondary">
-                  {memory.content}
+                <span className="text-[10px] font-mono text-obsidian-inkPrimary font-semibold">
+                  {latestTaskPlan.progressPct}%
                 </span>
-                <button
-                  type="button"
-                  onClick={() => forgetMemory(memory.id)}
-                  aria-label="Forget this memory"
-                  title="Forget"
-                  className="shrink-0 p-0.5 rounded text-obsidian-inkMuted opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all cursor-pointer focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
-                >
-                  <X className="w-3 h-3" aria-hidden="true" />
-                </button>
               </div>
-            ))
-          )}
-          <div className="flex items-center gap-1.5 pt-1">
-            <input
-              type="text"
-              value={memoryDraft}
-              onChange={(e) => setMemoryDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') teachMemory();
-              }}
-              placeholder="Teach a preference…"
-              aria-label="Teach Astra a preference"
-              className="flex-1 min-w-0 h-7 px-2 rounded-lg bg-obsidian-surface2 border border-obsidian-hairline text-[10px] font-mono text-obsidian-inkPrimary placeholder:text-obsidian-inkMuted focus:outline-none focus:ring-1 focus:ring-white/30"
-            />
-            <button
-              type="button"
-              onClick={() => teachMemory()}
-              disabled={!memoryDraft.trim()}
-              aria-label="Remember this preference"
-              title="Remember"
-              className="h-7 w-7 shrink-0 flex items-center justify-center rounded-lg bg-obsidian-surface2 border border-obsidian-hairline text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
-            >
-              <Plus className="w-3.5 h-3.5" aria-hidden="true" />
-            </button>
-          </div>
-        </CollapsibleSection>
+              <div
+                role="progressbar"
+                aria-label="Task plan completion progress"
+                aria-valuenow={latestTaskPlan.progressPct}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                className="h-1.5 rounded-full bg-obsidian-surface2 overflow-hidden"
+              >
+                <div
+                  className="h-full rounded-full bg-obsidian-inkPrimary transition-[width] duration-300"
+                  style={{ width: `${latestTaskPlan.progressPct}%` }}
+                />
+              </div>
+              <div className="space-y-1 pt-1">
+                {latestTaskPlan.todos.map((todo: { content: string; status: string }, idx: number) => {
+                  const isDone = todo.status === 'completed';
+                  const isInProgress = todo.status === 'in_progress';
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex items-start gap-2 px-2 py-1.5 rounded text-[11px] transition-colors ${
+                        isInProgress
+                          ? 'bg-obsidian-surface2 border border-obsidian-border text-obsidian-inkPrimary font-medium shadow-sm'
+                          : isDone
+                          ? 'bg-obsidian-surface2 text-obsidian-inkMuted'
+                          : 'bg-obsidian-surface1 text-obsidian-inkSecondary'
+                      }`}
+                    >
+                      <div className="mt-0.5 shrink-0">
+                        {isDone ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-obsidian-inkPrimary" aria-hidden="true" />
+                        ) : isInProgress ? (
+                          <Clock className="w-3.5 h-3.5 text-obsidian-inkPrimary animate-spin" aria-hidden="true" />
+                        ) : (
+                          <Circle className="w-3.5 h-3.5 text-obsidian-inkMuted" aria-hidden="true" />
+                        )}
+                      </div>
+                      <span className={`flex-1 break-words leading-relaxed ${isDone ? 'line-through opacity-70' : ''}`}>
+                        {todo.content}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </CollapsibleSection>
+        )}
+
+        {/* Persistent memory is intentionally not surfaced — it stays server-side only */}
 
         {/* Recent run history from the durable audit log */}
         {recentRuns.length > 0 && (
-          <CollapsibleSection title="Recent Runs" count={recentRuns.length}>
-            {recentRuns.map((run) => (
+          <CollapsibleSection title="Recent Runs" count={recentRuns.length} defaultOpen={false}>
+            {recentRuns.map((run) => {
+              // Displayed status derives from the registry — an audit row stuck at
+              // 'running' reads as completed unless this run is genuinely live.
+              const effStatus: RunStatus = (() => {
+                const entry = runsMap.get(run.id);
+                if (entry) return entry.status;
+                const raw = normalizeServerRunStatus(run.status);
+                if (raw === 'running') return isAgentGenerating ? 'running' : 'completed';
+                return raw ?? 'completed';
+              })();
+              const rowTone: 'idle' | 'active' | 'failed' =
+                effStatus === 'failed'
+                  ? 'failed'
+                  : effStatus === 'running' || effStatus === 'queued' || effStatus === 'waiting_for_input'
+                    ? 'active'
+                    : 'idle';
+              const endedMs =
+                run.finishedAt ?? (isTerminalRunStatus(effStatus) ? runsMap.get(run.id)?.endedAt ?? null : null);
+              return (
               <div key={run.id} className="rounded-lg">
                 <button
                   type="button"
                   onClick={() => toggleRunTimeline(run.id)}
                   aria-expanded={expandedRunId === run.id}
-                  title={`${run.promptPreview || 'Empty prompt'} — ${run.status}. Click for the event timeline.`}
-                  className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+                  title={`${run.promptPreview || 'Empty prompt'} — ${effStatus}. Click for the event timeline.`}
+                  className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-obsidian-surface1 transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-border"
                 >
                   <div className="flex items-center gap-2">
-                    <StatusDot
-                      tone={run.status === 'failed' ? 'failed' : run.status === 'running' ? 'active' : 'idle'}
-                    />
+                    <StatusDot tone={rowTone} />
                     <span className="flex-1 min-w-0 truncate text-[11px] text-obsidian-inkSecondary">
                       {run.promptPreview.split('\n')[0].slice(0, 60) || 'Empty prompt'}
                     </span>
@@ -621,7 +781,7 @@ export const ActivityPanel: React.FC = () => {
                     {run.verificationPassed !== null && (
                       <CheckCircle2
                         className={`w-3 h-3 shrink-0 ${
-                          run.verificationPassed ? 'text-emerald-400/80' : 'text-red-400'
+                          run.verificationPassed ? 'text-obsidian-inkSecondary' : 'text-red-400'
                         }`}
                         aria-label={run.verificationPassed ? 'Verification passed' : 'Verification failed'}
                       />
@@ -630,8 +790,8 @@ export const ActivityPanel: React.FC = () => {
                   <div className="text-[9px] font-mono text-obsidian-inkMuted pl-3.5">
                     {new Date(run.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     {' · '}
-                    {run.status}
-                    {run.finishedAt ? ` · ${fmtDuration(run.finishedAt - run.startedAt)}` : ' · running'}
+                    {effStatus}
+                    {endedMs !== null ? ` · ${fmtDuration(endedMs - run.startedAt)}` : ` · ${effStatus}`}
                     {run.filesMutated > 0 ? ` · ${run.filesMutated} file${run.filesMutated > 1 ? 's' : ''}` : ''}
                   </div>
                 </button>
@@ -655,47 +815,13 @@ export const ActivityPanel: React.FC = () => {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </CollapsibleSection>
         )}
 
-        {/* Provider retries + failovers for the current run */}
-        <CollapsibleSection title="Network" count={retryLog.length}>
-          {retryLog.length === 0 ? (
-            <EmptyLine label="No retries this run" />
-          ) : (
-            retryLog
-              .slice()
-              .reverse()
-              .map((entry, index) => (
-                <div
-                  key={`${entry.at}-${index}`}
-                  className="px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors duration-150"
-                  title={entry.reason}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="flex-1 min-w-0 truncate text-[10px] font-mono text-obsidian-inkSecondary">
-                      {entry.provider} · {entry.model}
-                    </span>
-                    <span
-                      className="shrink-0 text-[9px] font-mono text-obsidian-inkMuted"
-                      title={`At ${new Date(entry.at).toLocaleTimeString()}`}
-                    >
-                      {new Date(entry.at).toLocaleTimeString([], { hour12: false })}
-                    </span>
-                    <span className="shrink-0 text-[9px] font-mono uppercase tracking-wider text-obsidian-inkMuted">
-                      {entry.status}
-                      {entry.latencyMs > 0 ? ` · ${(entry.latencyMs / 1000).toFixed(1)}s` : ''}
-                    </span>
-                  </div>
-                  <div className="text-[9px] font-mono text-obsidian-inkMuted">
-                    attempt {entry.attempt}/{entry.totalAttempts}
-                    {entry.reason ? ` — ${entry.reason.slice(0, 90)}` : ''}
-                  </div>
-                </div>
-              ))
-          )}
-        </CollapsibleSection>
+        {/* Retry/failover noise is intentionally not shown here — the per-run
+            event timeline (/api/runs/:id) remains the place to inspect it */}
 
         {/* Files Changed */}
         <CollapsibleSection title="Files Changed" count={fileChanges.length}>
@@ -708,7 +834,7 @@ export const ActivityPanel: React.FC = () => {
               return (
               <div
                 key={fc.path}
-                className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors duration-150"
+                className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-obsidian-surface1 transition-colors duration-150"
                 title={`${fc.tool} - ${fc.path}`}
               >
                 <FileCode className="w-3.5 h-3.5 shrink-0 text-obsidian-inkSecondary" aria-hidden="true" />
@@ -721,7 +847,7 @@ export const ActivityPanel: React.FC = () => {
                     onClick={() => window.open(runUrl, '_blank', 'noopener')}
                     title="Run in browser"
                     aria-label={`Run ${basename(fc.path)}`}
-                    className="shrink-0 p-1 rounded text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-white/[0.08] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+                    className="shrink-0 p-1 rounded text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-border"
                   >
                     <Play className="w-3 h-3" aria-hidden="true" />
                   </button>
@@ -744,8 +870,11 @@ export const ActivityPanel: React.FC = () => {
         </CollapsibleSection>
 
         {/* Work artifacts (plans, implementations, verification) */}
-        {workArtifacts.length > 0 && (
-          <CollapsibleSection title="Work Items" count={workArtifacts.length}>
+        <CollapsibleSection title="Work Items" count={workArtifacts.length} defaultOpen={false}>
+          {workArtifacts.length === 0 ? (
+            <EmptyLine label="Plans, builds & reports land here" />
+          ) : (
+            <>
             {workArtifacts.slice(0, VISIBLE_ARTIFACTS).map((artifact) => {
               const Icon = ARTIFACT_TYPE_ICONS[artifact.type] || BookOpen;
               return (
@@ -753,7 +882,7 @@ export const ActivityPanel: React.FC = () => {
                   key={artifact.id}
                   type="button"
                   onClick={() => setViewingArtifact(artifact)}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors duration-150 text-left cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-obsidian-surface1 transition-colors duration-150 text-left cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-border"
                   title={`${artifact.name} — click to view`}
                 >
                   <Icon className="w-3.5 h-3.5 shrink-0 text-obsidian-inkSecondary" aria-hidden="true" />
@@ -773,65 +902,87 @@ export const ActivityPanel: React.FC = () => {
                 +{workArtifacts.length - VISIBLE_ARTIFACTS} more
               </div>
             )}
-          </CollapsibleSection>
-        )}
+            </>
+          )}
+        </CollapsibleSection>
 
         {/* Artifacts (generated media) */}
-        <CollapsibleSection title="Artifacts" count={artifacts.length}>
+        <CollapsibleSection title="Artifacts" count={artifacts.length} defaultOpen={false}>
           {artifacts.length === 0 ? (
             <EmptyLine label="No artifacts yet" />
           ) : (
             <>
-              {visibleArtifacts.map((artifact) => {
-                const icon =
-                  artifact.kind === 'video' ? (
-                    <Film className="w-3.5 h-3.5 shrink-0 text-obsidian-inkSecondary" aria-hidden="true" />
-                  ) : artifact.kind === 'audio' ? (
-                    <Volume2 className="w-3.5 h-3.5 shrink-0 text-obsidian-inkSecondary" aria-hidden="true" />
-                  ) : (
-                    <ImageIcon className="w-3.5 h-3.5 shrink-0 text-obsidian-inkSecondary" aria-hidden="true" />
-                  );
-                if (artifact.url) {
-                  return (
-                    <button
-                      key={artifact.key}
-                      type="button"
-                      onClick={() => setViewingMedia(artifact)}
-                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors duration-150 text-left cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
-                      title={`${artifact.name} — click to preview`}
-                    >
-                      {icon}
-                      <span className="flex-1 min-w-0 truncate text-[11px] text-obsidian-inkSecondary">{artifact.name}</span>
-                    </button>
-                  );
-                }
+            {visibleArtifacts.map((artifact) => {
+              const icon =
+                artifact.kind === 'video' ? (
+                  <Film className="w-3.5 h-3.5 shrink-0 text-obsidian-inkSecondary" aria-hidden="true" />
+                ) : artifact.kind === 'audio' ? (
+                  <Volume2 className="w-3.5 h-3.5 shrink-0 text-obsidian-inkSecondary" aria-hidden="true" />
+                ) : (
+                  <ImageIcon className="w-3.5 h-3.5 shrink-0 text-obsidian-inkSecondary" aria-hidden="true" />
+                );
+              if (artifact.url) {
                 return (
-                  <div
+                  <button
                     key={artifact.key}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors duration-150"
-                    title={artifact.name}
+                    type="button"
+                    onClick={() => setViewingMedia(artifact)}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-obsidian-surface1 transition-colors duration-150 text-left cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-border"
+                    title={`${artifact.name} — click to preview`}
                   >
                     {icon}
                     <span className="flex-1 min-w-0 truncate text-[11px] text-obsidian-inkSecondary">{artifact.name}</span>
-                  </div>
+                  </button>
                 );
-              })}
-              {artifacts.length > VISIBLE_ARTIFACTS && (
-                <button
-                  type="button"
-                  onClick={() => setShowAllArtifacts((show) => !show)}
-                  className="w-full px-2 py-1 text-left text-[10px] font-mono uppercase tracking-wider text-obsidian-inkMuted hover:text-obsidian-inkPrimary transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 rounded"
-                  aria-expanded={showAllArtifacts}
+              }
+              return (
+                <div
+                  key={artifact.key}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-obsidian-surface1 transition-colors duration-150"
+                  title={`${artifact.name} — click to preview`}
                 >
-                  {showAllArtifacts ? 'Show less' : `See all (${artifacts.length})`}
-                </button>
-              )}
+                  {icon}
+                  <span className="flex-1 min-w-0 truncate text-[11px] text-obsidian-inkSecondary">{artifact.name}</span>
+                </div>
+              );
+            })}
+            {artifacts.length > VISIBLE_ARTIFACTS && (
+              <button
+                type="button"
+                onClick={() => setShowAllArtifacts((show) => !show)}
+                className="w-full px-2 py-1 text-left text-[10px] font-mono uppercase tracking-wider text-obsidian-inkMuted hover:text-obsidian-inkPrimary transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-border rounded"
+                aria-expanded={showAllArtifacts}
+              >
+                {showAllArtifacts ? 'Show less' : `See all (${artifacts.length})`}
+              </button>
+            )}
             </>
           )}
         </CollapsibleSection>
 
         {/* Background Tasks */}
-        <CollapsibleSection title="Background Tasks" count={backgroundTasks.length + managedProcesses.length}>
+        <CollapsibleSection
+          title="Background Tasks"
+          count={backgroundTasks.length + managedProcesses.length}
+          defaultOpen={false}
+        >
+          {managedProcesses.some((p) => p.status !== 'stopped' && p.status !== 'exited') && (
+            <div className="flex items-center justify-between px-2 pb-1">
+              <span className="flex items-center gap-1.5 text-[10px] font-mono text-obsidian-inkMuted">
+                <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
+                <span>live now</span>
+              </span>
+              <button
+                type="button"
+                onClick={stopAllProcesses}
+                aria-label="Stop all background tasks"
+                title="Stop all background tasks"
+                className="w-8 h-8 rounded-md flex items-center justify-center text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-borderBright"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" aria-hidden="true" />
+              </button>
+            </div>
+          )}
           {managedProcesses.length > 0 && (
             <div className="space-y-1 mb-1">
               {managedProcesses.map((proc) => (
@@ -848,13 +999,16 @@ export const ActivityPanel: React.FC = () => {
                       {proc.command.split(/\s+/).slice(0, 3).join(' ')}
                     </span>
                     {proc.port && <span className="text-[9px] font-mono text-obsidian-inkMuted">:{proc.port}</span>}
+                    <span className="shrink-0 text-[9px] font-mono uppercase tracking-wider text-obsidian-inkMuted">
+                      {proc.status}
+                    </span>
                     {proc.status !== 'stopped' && proc.status !== 'exited' && (
                       <button
                         type="button"
                         onClick={() => stopProcess(proc.id)}
-                        title="Stop process"
-                        aria-label="Stop process"
-                        className="p-0.5 rounded text-obsidian-inkMuted hover:text-red-400 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-400/40"
+                        title="Stop task"
+                        aria-label="Stop task"
+                        className="w-6 h-6 rounded-md flex items-center justify-center text-obsidian-inkSecondary hover:text-red-400 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-400/40"
                       >
                         <X className="w-3 h-3" aria-hidden="true" />
                       </button>
@@ -892,7 +1046,7 @@ export const ActivityPanel: React.FC = () => {
         </CollapsibleSection>
 
         {/* Subagents */}
-        <CollapsibleSection title="Subagents" count={subagents.length}>
+        <CollapsibleSection title="Subagents" count={subagents.length} defaultOpen={false}>
           {subagents.length === 0 ? (
             <EmptyLine label="No subagents running" />
           ) : (
@@ -903,7 +1057,7 @@ export const ActivityPanel: React.FC = () => {
               return (
                 <div
                   key={sa.id}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors duration-150"
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-obsidian-surface1 transition-colors duration-150"
                   title={`${sa.currentTask || sa.name}${sa.currentTool ? ` — running ${sa.currentTool}` : ''}`}
                 >
                   <Users className="w-3.5 h-3.5 shrink-0 text-obsidian-inkSecondary" aria-hidden="true" />
@@ -920,12 +1074,7 @@ export const ActivityPanel: React.FC = () => {
           )}
         </CollapsibleSection>
       </div>
-
-      {viewingArtifact && (
-        <ArtifactViewer artifact={viewingArtifact} onClose={() => setViewingArtifact(null)} />
-      )}
-      {viewingMedia && viewingMedia.url && (
-        <MediaViewer artifact={viewingMedia} onClose={() => setViewingMedia(null)} />
+      </>
       )}
     </aside>
   );

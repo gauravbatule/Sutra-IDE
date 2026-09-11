@@ -108,7 +108,7 @@ export const AssetStudioModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in">
-      <div className="w-full max-w-4xl h-[80vh] bg-obsidian-surface1 border border-white/10 rounded-2xl flex flex-col overflow-hidden shadow-2xl">
+      <div className="w-full max-w-4xl h-[80vh] bg-obsidian-surface1 border border-obsidian-border rounded-2xl flex flex-col overflow-hidden shadow-2xl">
         {/* Header */}
         <div className="p-4 border-b border-obsidian-hairline flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -130,7 +130,7 @@ export const AssetStudioModal: React.FC = () => {
 
           <button
             onClick={() => setAssetStudioOpen(false)}
-            className="p-1.5 rounded-lg hover:bg-obsidian-surface4 text-obsidian-inkSecondary hover:text-white transition-colors"
+            className="p-1.5 rounded-lg hover:bg-obsidian-surface4 text-obsidian-inkSecondary hover:text-obsidian-inkPrimary transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -187,14 +187,14 @@ export const AssetStudioModal: React.FC = () => {
                   onChange={(e) => setPrompt(e.target.value)}
                   placeholder="e.g. Cinematic luxury travel hero backdrop with architectural depth, warm twilight lighting, and subtle atmospheric haze"
                   rows={3}
-                  className="w-full bg-obsidian-surface3 border border-white/10 rounded-lg p-3 text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent"
+                  className="w-full bg-obsidian-surface3 border border-obsidian-border rounded-lg p-3 text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-obsidian-inkPrimary font-medium mb-1.5">Image Model</label>
-                  <input value={imageModel} onChange={(e) => setImageModel(e.target.value)} placeholder="Image model ID or auto" className="w-full bg-obsidian-surface3 border border-white/10 rounded-lg p-2.5 text-obsidian-inkPrimary focus:outline-none focus:border-obsidian-accent" />
+                  <input value={imageModel} onChange={(e) => setImageModel(e.target.value)} placeholder="Image model ID or auto" className="w-full bg-obsidian-surface3 border border-obsidian-border rounded-lg p-2.5 text-obsidian-inkPrimary focus:outline-none focus:border-obsidian-accent" />
                 </div>
                 <div>
                   <label className="block text-obsidian-inkPrimary font-medium mb-1.5">Target Filename</label>
@@ -203,7 +203,7 @@ export const AssetStudioModal: React.FC = () => {
                     value={filename}
                     onChange={(e) => setFilename(e.target.value)}
                     placeholder="hero-cinematic.svg"
-                    className="w-full bg-obsidian-surface3 border border-white/10 rounded-lg p-2.5 text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent"
+                    className="w-full bg-obsidian-surface3 border border-obsidian-border rounded-lg p-2.5 text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent"
                   />
                 </div>
                 <div>
@@ -211,7 +211,7 @@ export const AssetStudioModal: React.FC = () => {
                   <select
                     value={dimensions}
                     onChange={(e) => setDimensions(e.target.value)}
-                    className="w-full bg-obsidian-surface3 border border-white/10 rounded-lg p-2.5 text-obsidian-inkPrimary focus:outline-none focus:border-obsidian-accent"
+                    className="w-full bg-obsidian-surface3 border border-obsidian-border rounded-lg p-2.5 text-obsidian-inkPrimary focus:outline-none focus:border-obsidian-accent"
                   >
                     <option value="1920x1080">1920x1080 (16:9 Hero)</option>
                     <option value="1080x1080">1080x1080 (1:1 Card)</option>
@@ -237,27 +237,27 @@ export const AssetStudioModal: React.FC = () => {
 
           {activeTab === 'video' && (
             <div className="max-w-xl mx-auto space-y-4 text-xs">
-              <div className="rounded-xl bg-white/[0.035] border border-white/[0.08] p-3 text-obsidian-inkSecondary leading-relaxed">
+              <div className="rounded-xl bg-obsidian-surface1 border border-obsidian-border p-3 text-obsidian-inkSecondary leading-relaxed">
                 SUTRA sends this request to the backend video endpoint and saves the rendered clip. The selected model must be available from a connected video provider.
               </div>
               <div>
                 <label className="block text-obsidian-inkPrimary font-medium mb-1.5">Shot Direction</label>
-                <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} placeholder="e.g. Slow dolly through a luminous glass product interface, soft studio light, subtle motion" className="w-full bg-obsidian-surface3 border border-white/10 rounded-lg p-3 text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent" />
+                <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} placeholder="e.g. Slow dolly through a luminous glass product interface, soft studio light, subtle motion" className="w-full bg-obsidian-surface3 border border-obsidian-border rounded-lg p-3 text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-obsidian-inkPrimary font-medium mb-1.5">Video Model</label>
-                  <input value={videoModel} onChange={(e) => setVideoModel(e.target.value)} placeholder="Video model ID or auto" className="w-full bg-obsidian-surface3 border border-white/10 rounded-lg p-2.5 text-obsidian-inkPrimary focus:outline-none focus:border-obsidian-accent" />
+                  <input value={videoModel} onChange={(e) => setVideoModel(e.target.value)} placeholder="Video model ID or auto" className="w-full bg-obsidian-surface3 border border-obsidian-border rounded-lg p-2.5 text-obsidian-inkPrimary focus:outline-none focus:border-obsidian-accent" />
                 </div>
                 <div>
                   <label className="block text-obsidian-inkPrimary font-medium mb-1.5">Clip length</label>
-                  <select value={videoDuration} onChange={(e) => setVideoDuration(e.target.value)} className="w-full bg-obsidian-surface3 border border-white/10 rounded-lg p-2.5 text-obsidian-inkPrimary focus:outline-none focus:border-obsidian-accent">
+                  <select value={videoDuration} onChange={(e) => setVideoDuration(e.target.value)} className="w-full bg-obsidian-surface3 border border-obsidian-border rounded-lg p-2.5 text-obsidian-inkPrimary focus:outline-none focus:border-obsidian-accent">
                     <option value="5">5 seconds</option><option value="10">10 seconds</option><option value="15">15 seconds</option>
                   </select>
                 </div>
                 <div className="col-span-2">
                   <label className="block text-obsidian-inkPrimary font-medium mb-1.5">Brief filename</label>
-                  <input value={filename} onChange={(e) => setFilename(e.target.value)} placeholder="hero-motion.mp4" className="w-full bg-obsidian-surface3 border border-white/10 rounded-lg p-2.5 text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent" />
+                  <input value={filename} onChange={(e) => setFilename(e.target.value)} placeholder="hero-motion.mp4" className="w-full bg-obsidian-surface3 border border-obsidian-border rounded-lg p-2.5 text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent" />
                 </div>
               </div>
               <button onClick={handleGenerateVideo} disabled={isGenerating || !prompt.trim() || !filename.trim()} className={`w-full py-3 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-all ${!isGenerating && prompt.trim() && filename.trim() ? 'bg-obsidian-inkPrimary hover:bg-obsidian-accentHover text-obsidian-canvas shadow-lg shadow-black/40 active:scale-95' : 'bg-obsidian-surface4 text-obsidian-inkMuted cursor-not-allowed'}`}>
@@ -270,7 +270,7 @@ export const AssetStudioModal: React.FC = () => {
             <div className="max-w-xl mx-auto space-y-4 text-xs">
               <div>
                 <label className="block text-obsidian-inkPrimary font-medium mb-1.5">Audio Model</label>
-                <input value={audioModel} onChange={(e) => setAudioModel(e.target.value)} placeholder="Speech model ID" className="w-full bg-obsidian-surface3 border border-white/10 rounded-lg p-2.5 text-obsidian-inkPrimary focus:outline-none focus:border-obsidian-accent" />
+                <input value={audioModel} onChange={(e) => setAudioModel(e.target.value)} placeholder="Speech model ID" className="w-full bg-obsidian-surface3 border border-obsidian-border rounded-lg p-2.5 text-obsidian-inkPrimary focus:outline-none focus:border-obsidian-accent" />
               </div>
               <div>
                 <label className="block text-obsidian-inkPrimary font-medium mb-1.5">Audio Cue Type</label>
@@ -283,8 +283,8 @@ export const AssetStudioModal: React.FC = () => {
                       }}
                       className={`p-3 rounded-lg border text-left flex items-center justify-between transition-all ${
                         audioType === type
-                          ? 'bg-white/[0.07] border-white/20 text-obsidian-inkPrimary'
-                          : 'bg-obsidian-surface3 border-white/5 text-obsidian-inkSecondary hover:bg-obsidian-surface4'
+                          ? 'bg-obsidian-surface2 border-obsidian-border text-obsidian-inkPrimary'
+                          : 'bg-obsidian-surface3 border-obsidian-hairline text-obsidian-inkSecondary hover:bg-obsidian-surface4'
                       }`}
                     >
                       <div className="font-semibold capitalize">{type} Sound</div>
@@ -301,7 +301,7 @@ export const AssetStudioModal: React.FC = () => {
                   value={filename}
                   onChange={(e) => setFilename(e.target.value)}
                   placeholder="ui-success-chime.mp3"
-                  className="w-full bg-obsidian-surface3 border border-white/10 rounded-lg p-2.5 text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent"
+                  className="w-full bg-obsidian-surface3 border border-obsidian-border rounded-lg p-2.5 text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent"
                 />
               </div>
 
@@ -321,14 +321,14 @@ export const AssetStudioModal: React.FC = () => {
               {assets.map((asset) => (
                 <div
                   key={asset.id}
-                  className="p-3 rounded-xl bg-obsidian-surface3/80 border border-white/5 flex flex-col justify-between group hover:border-white/10 transition-all"
+                  className="p-3 rounded-xl bg-obsidian-surface3/80 border border-obsidian-hairline flex flex-col justify-between group hover:border-obsidian-border transition-all"
                 >
                   <div>
-                    <div className="h-28 rounded-lg bg-obsidian-surface1 border border-white/5 mb-2 overflow-hidden flex items-center justify-center">
+                    <div className="h-28 rounded-lg bg-obsidian-surface1 border border-obsidian-hairline mb-2 overflow-hidden flex items-center justify-center">
                       {asset.type === 'image' || asset.type === 'svg' ? (
                         <iframe src={asset.url} title={asset.name} className="w-full h-full pointer-events-none border-none" />
                       ) : asset.type === 'video' ? (
-                        <video src={asset.url} controls className="w-full h-full object-contain" />
+                        <video src={asset.url} controls playsInline preload="metadata" className="w-full h-full object-contain" />
                       ) : asset.type === 'audio' ? (
                         <audio src={asset.url} controls className="w-[90%]" />
                       ) : (
@@ -339,13 +339,13 @@ export const AssetStudioModal: React.FC = () => {
                     <div className="text-[10px] font-mono text-obsidian-inkMuted uppercase">{asset.type} • {asset.dimensions || 'Vector'}</div>
                   </div>
 
-                  <div className="mt-3 pt-2 border-t border-white/5 flex items-center justify-between text-[11px]">
+                  <div className="mt-3 pt-2 border-t border-obsidian-hairline flex items-center justify-between text-[11px]">
                     <span className="text-obsidian-inkMuted font-mono">{asset.path.split('/').pop()}</span>
                     <a
                       href={asset.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-obsidian-inkPrimary hover:text-white"
+                      className="text-obsidian-inkPrimary hover:text-obsidian-inkPrimary"
                     >
                       View
                     </a>

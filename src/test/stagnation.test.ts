@@ -31,12 +31,12 @@ describe('StagnationDetector', () => {
 
   it('warns on the third same-target attempt even when params differ, blocks on the fourth', () => {
     const d = new StagnationDetector();
-    d.record(attempt('read_file', { path: 'big.ts', startLine: 1 }));
-    d.record(attempt('read_file', { path: 'big.ts', startLine: 200 }));
-    const third = d.record(attempt('read_file', { path: 'big.ts', startLine: 400 }));
+    d.record(attempt('edit_file', { path: 'big.ts', content: 'v1' }));
+    d.record(attempt('edit_file', { path: 'big.ts', content: 'v2' }));
+    const third = d.record(attempt('edit_file', { path: 'big.ts', content: 'v3' }));
     expect(third.level).toBe('warn');
 
-    const fourth = d.record(attempt('read_file', { path: 'big.ts', startLine: 800 }));
+    const fourth = d.record(attempt('edit_file', { path: 'big.ts', content: 'v4' }));
     expect(fourth.level).toBe('block');
     expect(fourth.reason).toMatch(/big\.ts/);
   });

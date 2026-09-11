@@ -114,7 +114,7 @@ describe('ManagerShell', () => {
 
   it('renders the greeting hero, sidebar chrome, and Open IDE control', async () => {
     render(<ManagerShell />);
-    expect(await screen.findByText('What are we building today?')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Sutra')).toBeInTheDocument();
     // Hero mode hides the sidebar behind a History peek until the first send
     fireEvent.click(screen.getByRole('button', { name: /history/i }));
     expect(screen.getByRole('button', { name: /new conversation/i })).toBeInTheDocument();
@@ -233,8 +233,8 @@ describe('ManagerShell', () => {
       ],
     });
     render(<ManagerShell />);
-    expect(await screen.findByText('What are we building today?')).toBeInTheDocument();
-    expect(screen.queryByText(/add api keys or cookies in settings/i)).not.toBeInTheDocument();
+    expect(await screen.findByLabelText('Sutra')).toBeInTheDocument();
+    expect(screen.queryByText(/connect models in settings/i)).not.toBeInTheDocument();
   });
 
   it('renders the right-side Activity panel with its sections', async () => {
@@ -248,11 +248,34 @@ describe('ManagerShell', () => {
     render(<ManagerShell />);
     expect(await screen.findByRole('button', { name: /collapse activity panel/i })).toBeInTheDocument();
     expect(screen.getByText('Status')).toBeInTheDocument();
-    expect(screen.getByText('Network')).toBeInTheDocument();
+    expect(screen.getByText('Work Items')).toBeInTheDocument();
     expect(screen.getByText('Files Changed')).toBeInTheDocument();
     expect(screen.getByText('Artifacts')).toBeInTheDocument();
     expect(screen.getByText('Background Tasks')).toBeInTheDocument();
     expect(screen.getByText('Subagents')).toBeInTheDocument();
+  });
+
+  it('does not render preview on new conversation / hero screen and automatically dismisses isPreviewOpen', async () => {
+    useIDEStore.setState({
+      isPreviewOpen: true,
+      agentMessages: [{ id: 'msg-welcome', role: 'assistant', content: 'What are we building?', timestamp: Date.now() }],
+    });
+    render(<ManagerShell />);
+    expect(screen.queryByRole('button', { name: /toggle live website preview/i })).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/SUTRA Live Responsive Preview Sandbox/i)).not.toBeInTheDocument();
+    await waitFor(() => expect(useIDEStore.getState().isPreviewOpen).toBe(false));
+  });
+
+  it('renders the preview toggle button when in an active conversation', async () => {
+    useIDEStore.setState({
+      isPreviewOpen: false,
+      agentMessages: [
+        { id: 'msg-u1', role: 'user', content: 'Create index.html', timestamp: Date.now() } as any,
+        { id: 'msg-a1', role: 'assistant', content: 'Created.', timestamp: Date.now() } as any,
+      ],
+    });
+    render(<ManagerShell />);
+    expect(await screen.findByRole('button', { name: /toggle live website preview/i })).toBeInTheDocument();
   });
 });
 

@@ -7,7 +7,9 @@ import {
   Trash2,
   Check,
   Loader2,
-  X
+  X,
+  Sparkles,
+  RotateCcw
 } from 'lucide-react';
 import { useIDEStore } from '../../stores/ideStore.js';
 
@@ -37,6 +39,8 @@ export const GitPanel: React.FC = () => {
   const [commitResult, setCommitResult] = useState<string | null>(null);
   const [isCommitError, setIsCommitError] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
+  const [isGeneratingMessage, setIsGeneratingMessage] = useState(false);
+  const [revertingPath, setRevertingPath] = useState<string | null>(null);
 
   const fetchStatus = async () => {
     setLoading(true);
@@ -65,6 +69,7 @@ export const GitPanel: React.FC = () => {
     } finally {
       setIsInitializing(false);
       fetchStatus();
+      useIDEStore.getState().triggerFileTreeRefresh();
     }
   };
 
@@ -78,6 +83,58 @@ export const GitPanel: React.FC = () => {
       setSelectedFileDiff({ path: filePath, diff: 'Failed to fetch diff' });
     } finally {
       setDiffLoading(false);
+    }
+  };
+
+  const handleGenerateCommitMessage = async () => {
+    setIsGeneratingMessage(true);
+    setCommitResult(null);
+    setIsCommitError(false);
+    try {
+      const res = await fetch('/api/git/generate-commit-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      const msg = data.commitMessage || data.message;
+      if (msg) {
+        setCommitMessage(msg);
+      } else {
+        throw new Error(data.error || 'Failed to generate commit message');
+      }
+    } catch (err: any) {
+      setCommitResult(`AI error: ${err.message}`);
+      setIsCommitError(true);
+    } finally {
+      setIsGeneratingMessage(false);
+    }
+  };
+
+  const handleRevertFile = async (filePath: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setRevertingPath(filePath);
+    try {
+      const res = await fetch('/api/git/revert-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (selectedFileDiff?.path === filePath) {
+          setSelectedFileDiff(null);
+        }
+        fetchStatus();
+        useIDEStore.getState().triggerFileTreeRefresh();
+      } else {
+        setCommitResult(`Revert failed: ${data.error || 'unknown error'}`);
+        setIsCommitError(true);
+      }
+    } catch (err: any) {
+      setCommitResult(`Revert error: ${err.message}`);
+      setIsCommitError(true);
+    } finally {
+      setRevertingPath(null);
     }
   };
 
@@ -100,6 +157,7 @@ export const GitPanel: React.FC = () => {
         setCommitResult('Committed successfully');
         setSelectedFileDiff(null);
         fetchStatus();
+        useIDEStore.getState().triggerFileTreeRefresh();
         setTimeout(() => setCommitResult(null), 3000);
       } else {
         // Surface commit failures inline — never clear the user's message on error
@@ -144,13 +202,13 @@ export const GitPanel: React.FC = () => {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'added':
-        return <span className="text-[9px] font-mono text-obsidian-inkPrimary bg-obsidian-surface2 border border-obsidian-hairline px-1.5 py-0.2 rounded-full">A</span>;
+        return <span className="text-[11px] font-mono font-semibold text-obsidian-inkPrimary w-4 text-center select-none" title="Added">A</span>;
       case 'untracked':
-        return <span className="text-[9px] font-mono text-obsidian-inkPrimary bg-obsidian-surface2 border border-obsidian-hairline px-1.5 py-0.2 rounded-full">U</span>;
+        return <span className="text-[11px] font-mono font-semibold text-obsidian-inkSecondary w-4 text-center select-none" title="Untracked">U</span>;
       case 'deleted':
-        return <span className="text-[9px] font-mono text-obsidian-inkMuted bg-obsidian-surface2 border border-obsidian-hairline px-1.5 py-0.2 rounded-full">D</span>;
+        return <span className="text-[11px] font-mono font-semibold text-obsidian-inkMuted w-4 text-center select-none" title="Deleted">D</span>;
       default:
-        return <span className="text-[9px] font-mono text-obsidian-inkSecondary bg-obsidian-surface2 border border-obsidian-hairline px-1.5 py-0.2 rounded-full">M</span>;
+        return <span className="text-[11px] font-mono font-semibold text-obsidian-inkSecondary w-4 text-center select-none" title="Modified">M</span>;
     }
   };
 
@@ -168,7 +226,7 @@ export const GitPanel: React.FC = () => {
           <button
             onClick={fetchStatus}
             disabled={loading}
-            className="p-1 rounded-lg hover:bg-white/[0.06] text-obsidian-inkMuted hover:text-obsidian-inkPrimary transition-colors"
+            className="p-1 rounded-lg hover:bg-obsidian-surface2 text-obsidian-inkMuted hover:text-obsidian-inkPrimary transition-colors"
             title="Refresh Git Status"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
@@ -224,7 +282,7 @@ export const GitPanel: React.FC = () => {
         </div>
         <div className="flex items-center gap-1">
           {statusData?.branch && (
-            <span className="text-[10px] font-mono text-obsidian-inkSecondary bg-white/[0.04] px-2 py-0.5 rounded-full flex items-center gap-1">
+            <span className="text-[10px] font-mono text-obsidian-inkSecondary bg-obsidian-surface1 px-2 py-0.5 rounded-full flex items-center gap-1">
               <GitBranch className="w-2.5 h-2.5" />
               {statusData.branch}
             </span>
@@ -232,7 +290,7 @@ export const GitPanel: React.FC = () => {
           <button
             onClick={fetchStatus}
             disabled={loading}
-            className="p-1 rounded-lg hover:bg-white/[0.06] text-obsidian-inkMuted hover:text-obsidian-inkPrimary transition-colors"
+            className="p-1 rounded-lg hover:bg-obsidian-surface2 text-obsidian-inkMuted hover:text-obsidian-inkPrimary transition-colors"
             title="Refresh Git Status"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
@@ -243,18 +301,34 @@ export const GitPanel: React.FC = () => {
       {/* Commit Box */}
       {statusData?.hasChanges && (
         <form onSubmit={handleCommit} className="p-3 border-b border-obsidian-hairline bg-obsidian-surface2/30 space-y-2">
-          <textarea
-            value={commitMessage}
-            onChange={(e) => setCommitMessage(e.target.value)}
-            placeholder="Message (Ctrl+Enter to commit)"
-            rows={2}
-            className="w-full p-2 bg-obsidian-surface1 border border-obsidian-hairline rounded-lg text-xs text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent focus:ring-1 focus:ring-obsidian-accent/30 font-sans resize-none"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                handleCommit(e);
-              }
-            }}
-          />
+          <div className="relative">
+            <textarea
+              value={commitMessage}
+              onChange={(e) => setCommitMessage(e.target.value)}
+              placeholder="Message (Ctrl+Enter to commit)"
+              rows={2}
+              className="w-full p-2 pr-8 bg-obsidian-surface1 border border-obsidian-hairline rounded-lg text-xs text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent focus:ring-1 focus:ring-obsidian-accent/30 font-sans resize-none"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                  handleCommit(e);
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={handleGenerateCommitMessage}
+              disabled={isGeneratingMessage}
+              className="absolute right-2 top-2 p-1 rounded hover:bg-obsidian-surface2 text-obsidian-inkMuted hover:text-amber-400 transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+              title="Generate commit message with AI (Conventional Commits)"
+              aria-label="Generate commit message with AI"
+            >
+              {isGeneratingMessage ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
           <button
             type="submit"
             disabled={isCommitting || !commitMessage.trim()}
@@ -303,10 +377,10 @@ export const GitPanel: React.FC = () => {
           <div
             key={file.path}
             className={`rounded-lg group transition-colors ${
-              selectedFileDiff?.path === file.path ? 'bg-white/[0.08]' : 'hover:bg-white/[0.04]'
+              selectedFileDiff?.path === file.path ? 'bg-obsidian-surface2' : 'hover:bg-obsidian-surface1'
             }`}
           >
-            <div className="flex items-center justify-between px-2 py-1.5">
+            <div className="flex items-center justify-between px-2 py-1.5 gap-1">
               <button
                 onClick={() => {
                   fetchDiff(file.path);
@@ -317,7 +391,23 @@ export const GitPanel: React.FC = () => {
                 {getStatusIcon(file.status)}
                 <span className="text-[11px] text-obsidian-inkPrimary truncate">{file.path}</span>
               </button>
-              {getStatusBadge(file.status)}
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={(e) => handleRevertFile(file.path, e)}
+                  disabled={revertingPath === file.path}
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-obsidian-surface3 text-obsidian-inkMuted hover:text-rose-400 transition-all cursor-pointer"
+                  title="Discard changes (Revert file)"
+                  aria-label={`Discard changes in ${file.path}`}
+                >
+                  {revertingPath === file.path ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-3 h-3" />
+                  )}
+                </button>
+                {getStatusBadge(file.status)}
+              </div>
             </div>
           </div>
         ))}
@@ -325,17 +415,35 @@ export const GitPanel: React.FC = () => {
 
       {/* File Diff Drawer if selected */}
       {selectedFileDiff && (
-        <div className="h-44 border-t border-obsidian-hairline bg-black/40 flex flex-col font-mono text-[10px] overflow-hidden">
+        <div className="h-44 border-t border-obsidian-hairline bg-obsidian-surface1 flex flex-col font-mono text-[10px] overflow-hidden">
           <div className="px-3 py-1.5 bg-obsidian-surface2 flex items-center justify-between border-b border-obsidian-hairline">
-            <span className="text-obsidian-inkPrimary truncate max-w-[200px]">
+            <span className="text-obsidian-inkPrimary truncate max-w-[180px]">
               Diff: {selectedFileDiff.path}
             </span>
-            <button
-              onClick={() => setSelectedFileDiff(null)}
-              className="p-0.5 rounded-lg text-obsidian-inkMuted hover:text-obsidian-inkPrimary transition-colors"
-            >
-              <X className="w-3 h-3" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={(e) => handleRevertFile(selectedFileDiff.path, e)}
+                disabled={revertingPath === selectedFileDiff.path}
+                className="p-1 rounded hover:bg-obsidian-surface3 text-obsidian-inkMuted hover:text-rose-400 transition-colors flex items-center gap-1 text-[10px] cursor-pointer"
+                title="Discard changes in this file"
+              >
+                {revertingPath === selectedFileDiff.path ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-3 h-3" />
+                )}
+                <span>Revert</span>
+              </button>
+              <button
+                onClick={() => setSelectedFileDiff(null)}
+                className="w-6 h-6 rounded-lg text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors flex items-center justify-center cursor-pointer"
+                title="Close diff"
+                aria-label="Close diff"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto p-2 leading-relaxed select-text font-mono">
             {diffLoading ? (

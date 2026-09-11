@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { ChevronDown, FolderOpen, History, ListChecks, Plus, QrCode, Settings } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ChevronDown, FolderOpen, History, ListChecks, Plus, QrCode, Settings, Puzzle } from 'lucide-react';
 import { useIDEStore } from '../../stores/ideStore.js';
 import { useAuthStore } from '../../stores/authStore.js';
-import { useChatSessions } from './useChatSessions.js';
+import { useChatSessionsStore } from '../../stores/sessionsStore.js';
 import { ConversationList } from './ConversationList.js';
 import { TaskManagerPanel } from './TaskManagerPanel.js';
 
@@ -12,9 +12,19 @@ interface ManagerSidebarProps {
   onNewConversation: () => void;
   onOpenConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
+  /** Triggered by the in-sidebar chevron; parent decides what "hidden" means. */
+  onCollapse?: () => void;
 }
 
 type SidebarSection = 'history' | 'tasks';
+
+/**
+ * Tiny uppercase section header — the single visual device that separates the
+ * sidebar's groups (Pinned / Recent / Automations / Projects / Tools).
+ * inkMuted is intentional here: headers are decoration, not content.
+ */
+const SECTION_LABEL_CLASSES =
+  'text-[9px] font-semibold uppercase tracking-[0.12em] text-obsidian-inkMuted';
 
 const RECENT_WORKSPACES_KEY = 'sutra-recent-workspaces';
 
@@ -38,6 +48,7 @@ const rememberWorkspace = (workspacePath: string): void => {
 
 /** Workspace switcher: current folder, browse, create, and recent workspaces. */
 export const WorkspaceMenu: React.FC<{ workspaceName: string }> = ({ workspaceName }) => {
+  const { switchWorkspace, currentWorkspacePath, setFolderPickerOpen } = useIDEStore();
   const [isOpen, setIsOpen] = useState(false);
   const [currentPath, setCurrentPath] = useState('');
   const [recent, setRecent] = useState<string[]>(() => readRecentWorkspaces());
@@ -47,30 +58,31 @@ export const WorkspaceMenu: React.FC<{ workspaceName: string }> = ({ workspaceNa
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen && currentWorkspacePath) {
+      setCurrentPath(currentWorkspacePath);
+      return;
+    }
     fetch('/api/fs/workspace')
       .then((r) => r.json())
-      .then((d) => setCurrentPath(typeof d.path === 'string' ? d.path : ''))
+      .then((d) => {
+        const p = typeof d.workspaceRoot === 'string' ? d.workspaceRoot : typeof d.path === 'string' ? d.path : '';
+        if (p) setCurrentPath(p);
+      })
       .catch(() => undefined);
-  }, [isOpen]);
+  }, [isOpen, currentWorkspacePath]);
 
   const switchTo = async (workspacePath: string) => {
     setBusy(true);
     setMenuError(null);
     try {
-      const res = await fetch('/api/fs/set-workspace', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: workspacePath }),
-      });
-      const data = await res.json();
-      if (data.success) {
+      const result = await switchWorkspace(workspacePath);
+      if (result.success) {
         rememberWorkspace(workspacePath);
         setRecent(readRecentWorkspaces());
         setCurrentPath(workspacePath);
         setIsOpen(false);
       } else {
-        setMenuError(data.error || 'Could not switch workspace.');
+        setMenuError(result.error || 'Could not switch workspace.');
       }
     } catch {
       setMenuError('Could not reach the server.');
@@ -86,6 +98,7 @@ export const WorkspaceMenu: React.FC<{ workspaceName: string }> = ({ workspaceNa
       const res = await fetch('/api/fs/browse-folder', { method: 'POST' });
       const data = await res.json();
       if (data.success && data.path) {
+        await switchWorkspace(data.path);
         rememberWorkspace(data.path);
         setRecent(readRecentWorkspaces());
         setCurrentPath(data.path);
@@ -112,9 +125,11 @@ export const WorkspaceMenu: React.FC<{ workspaceName: string }> = ({ workspaceNa
       });
       const data = await res.json();
       if (data.success) {
-        rememberWorkspace(data.workspacePath);
+        const createdPath = data.workspacePath || newPath.trim();
+        await switchWorkspace(createdPath);
+        rememberWorkspace(createdPath);
         setRecent(readRecentWorkspaces());
-        setCurrentPath(data.workspacePath);
+        setCurrentPath(createdPath);
         setNewPath('');
         setCreating(false);
         setIsOpen(false);
@@ -135,7 +150,7 @@ export const WorkspaceMenu: React.FC<{ workspaceName: string }> = ({ workspaceNa
         onClick={() => setIsOpen((open) => !open)}
         aria-expanded={isOpen}
         aria-haspopup="menu"
-        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg bg-obsidian-surface2 border border-obsidian-hairline hover:border-white/20 text-left transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg bg-obsidian-surface2 border border-obsidian-hairline hover:border-obsidian-border text-left transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-border"
         title={`${workspaceName} — switch workspace`}
       >
         <FolderOpen className="w-3.5 h-3.5 text-obsidian-inkMuted shrink-0" aria-hidden="true" />
@@ -145,23 +160,37 @@ export const WorkspaceMenu: React.FC<{ workspaceName: string }> = ({ workspaceNa
 
       {isOpen && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} aria-hidden="true" />
+          {/* z-20 keeps this below the z-30 header, so the backdrop no
+              longer swallows clicks on the header's workspace controls. */}
+          <div className="fixed inset-0 z-20" onClick={() => setIsOpen(false)} aria-hidden="true" />
           <div
             role="menu"
             aria-label="Workspace options"
-            className="absolute bottom-full mb-1 left-0 right-0 z-50 rounded-xl bg-[#141419] border border-white/15 shadow-elevation p-2 space-y-1 animate-in fade-in zoom-in-95 duration-150"
+            className="absolute bottom-full mb-1 left-0 right-0 z-50 rounded-lg bg-obsidian-surface1 border border-obsidian-border shadow-elevation p-2 space-y-1 animate-in fade-in zoom-in-95 duration-150"
           >
             {currentPath && (
-              <div className="px-2 py-1 text-[10px] font-mono text-obsidian-inkMuted truncate" title={currentPath}>
+              <div className="px-2 py-1 text-[10px] font-mono text-obsidian-inkSecondary truncate" title={currentPath}>
                 {currentPath}
               </div>
             )}
             <button
               type="button"
               role="menuitem"
+              onClick={() => {
+                setFolderPickerOpen(true);
+                setIsOpen(false);
+              }}
+              className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors cursor-pointer flex items-center justify-between"
+            >
+              <span>Project Hub & Starters…</span>
+              <span className="text-[10px] text-obsidian-inkMuted font-mono">Hub</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
               onClick={browseFolder}
               disabled={busy}
-              className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-50"
+              className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors cursor-pointer disabled:opacity-50"
             >
               Open Folder…
             </button>
@@ -171,7 +200,7 @@ export const WorkspaceMenu: React.FC<{ workspaceName: string }> = ({ workspaceNa
                 role="menuitem"
                 onClick={() => setCreating(true)}
                 disabled={busy}
-                className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-50"
+                className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors cursor-pointer disabled:opacity-50"
               >
                 Create Workspace…
               </button>
@@ -188,7 +217,7 @@ export const WorkspaceMenu: React.FC<{ workspaceName: string }> = ({ workspaceNa
                   placeholder="C:\projects\my-app"
                   aria-label="New workspace folder path"
                   autoFocus
-                  className="w-full px-2 py-1.5 rounded-lg bg-transparent border border-white/10 focus:border-white/25 text-xs text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none transition-colors"
+                  className="w-full px-2 py-1.5 rounded-lg bg-transparent border border-obsidian-border focus:border-obsidian-borderBright text-xs text-obsidian-inkPrimary placeholder-obsidian-inkSecondary focus:outline-none transition-colors"
                 />
                 <div className="flex gap-1.5 justify-end">
                   <button
@@ -202,7 +231,7 @@ export const WorkspaceMenu: React.FC<{ workspaceName: string }> = ({ workspaceNa
                     type="button"
                     onClick={createWorkspace}
                     disabled={busy}
-                    className="px-2.5 py-1 rounded-lg bg-obsidian-inkPrimary text-obsidian-canvas hover:bg-zinc-200 text-[10px] font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                    className="px-2.5 py-1 rounded-lg bg-obsidian-inkPrimary text-obsidian-canvas hover:bg-obsidian-accentHover text-[10px] font-semibold transition-colors cursor-pointer disabled:opacity-50"
                   >
                     Create
                   </button>
@@ -211,7 +240,7 @@ export const WorkspaceMenu: React.FC<{ workspaceName: string }> = ({ workspaceNa
             )}
             {recent.length > 0 && (
               <>
-                <div className="px-2 pt-1.5 pb-0.5 text-[9px] font-mono uppercase tracking-wider text-obsidian-inkMuted">Recent</div>
+                <div className={`px-2 pt-1.5 pb-1 ${SECTION_LABEL_CLASSES}`}>Recent</div>
                 {recent.map((recentPath) => (
                   <button
                     key={recentPath}
@@ -219,7 +248,7 @@ export const WorkspaceMenu: React.FC<{ workspaceName: string }> = ({ workspaceNa
                     role="menuitem"
                     onClick={() => switchTo(recentPath)}
                     disabled={busy}
-                    className="w-full text-left px-2 py-1.5 rounded-lg text-[11px] font-mono text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-50 truncate"
+                    className="w-full text-left px-2 py-1.5 rounded-lg text-[11px] font-mono text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors cursor-pointer disabled:opacity-50 truncate"
                     title={recentPath}
                   >
                     {recentPath}
@@ -241,16 +270,20 @@ export const ManagerSidebar: React.FC<ManagerSidebarProps> = ({
   onNewConversation,
   onOpenConversation,
   onDeleteConversation,
+  onCollapse: _onCollapse,
 }) => {
   const pinnedSessionIds = useIDEStore((s) => s.pinnedSessionIds);
   const togglePinSession = useIDEStore((s) => s.togglePinSession);
   const setSettingsOpen = useIDEStore((s) => s.setSettingsOpen);
+  const setSkillsModalOpen = useIDEStore((s) => s.setSkillsModalOpen);
   const setQRPairingOpen = useIDEStore((s) => s.setQRPairingOpen);
   const isAgentGenerating = useIDEStore((s) => s.isAgentGenerating);
   const authWorkspaces = useAuthStore((s) => s.workspaces);
   const activeWorkspaceId = useAuthStore((s) => s.activeWorkspaceId);
   const [section, setSection] = useState<SidebarSection>('history');
-  const { sessions, isLoading, error, refresh } = useChatSessions();
+  // Shared no-flash session store: background refreshes keep previous rows
+  // rendered instead of swapping to skeletons (see stores/sessionsStore.ts).
+  const { sessions, isLoading, error, refresh } = useChatSessionsStore();
 
   // Parent bumps refreshKey after creating/syncing/deleting sessions
   useEffect(() => {
@@ -260,8 +293,13 @@ export const ManagerSidebar: React.FC<ManagerSidebarProps> = ({
 
   const pinnedSessions = sessions.filter((s) => pinnedSessionIds.includes(s.id));
   const unpinnedSessions = sessions.filter((s) => !pinnedSessionIds.includes(s.id));
+  const currentWorkspaceName = useIDEStore((s) => s.currentWorkspaceName);
+  const currentWorkspacePath = useIDEStore((s) => s.currentWorkspacePath);
   const workspaceName =
-    authWorkspaces.find((w) => w.id === activeWorkspaceId)?.name || authWorkspaces[0]?.name || 'This workspace';
+    currentWorkspaceName ||
+    (currentWorkspacePath ? currentWorkspacePath.split(/[/\\]/).filter(Boolean).pop() : '') ||
+    authWorkspaces.find((w) => w.id === activeWorkspaceId)?.name ||
+    'This workspace';
 
   const renderHistoryList = (list: typeof sessions, emptyMessage: string) => (
     <ConversationList
@@ -281,11 +319,12 @@ export const ManagerSidebar: React.FC<ManagerSidebarProps> = ({
 
   return (
     <aside className="w-[280px] min-w-[280px] h-full flex flex-col bg-obsidian-surface1 border-r border-obsidian-hairline shrink-0 select-none">
-      {/* Primary action (brand mark lives in the single top bar) */}
-      <div className="p-3 pb-2 shrink-0">
+      {/* Primary action (brand mark and permanent sidebar toggle live in the top bar) */}
+      <div className="px-3 pt-3 shrink-0">
         <button
           onClick={onNewConversation}
-          className="w-full px-3 py-2 rounded-lg bg-obsidian-inkPrimary text-obsidian-canvas hover:bg-zinc-200 text-xs font-semibold transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+          title="Start a new conversation"
+          className="w-full h-8 rounded-md bg-obsidian-inkPrimary text-obsidian-canvas hover:bg-obsidian-accentHover text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-obsidian-borderBright"
         >
           <Plus className="w-3.5 h-3.5" aria-hidden="true" />
           <span>New Conversation</span>
@@ -293,14 +332,15 @@ export const ManagerSidebar: React.FC<ManagerSidebarProps> = ({
       </div>
 
       {/* Section nav */}
-      <nav className="px-2 space-y-0.5 shrink-0" aria-label="Manager sections">
+      <nav className="px-1.5 pt-3 space-y-0.5 shrink-0" aria-label="Manager sections">
         <button
           onClick={() => setSection('history')}
           aria-current={section === 'history' ? 'page' : undefined}
-          className={`w-full px-2 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 ${
+          title="Conversation history"
+          className={`w-full px-2 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-border ${
             section === 'history'
-              ? 'bg-white/[0.08] text-obsidian-inkPrimary'
-              : 'text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-white/[0.04]'
+              ? 'bg-obsidian-surface2 text-obsidian-inkPrimary'
+              : 'text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface1'
           }`}
         >
           <History className="w-3.5 h-3.5 opacity-70" aria-hidden="true" />
@@ -309,10 +349,11 @@ export const ManagerSidebar: React.FC<ManagerSidebarProps> = ({
         <button
           onClick={() => setSection('tasks')}
           aria-current={section === 'tasks' ? 'page' : undefined}
-          className={`w-full px-2 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 ${
+          title="Scheduled tasks"
+          className={`w-full px-2 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-obsidian-border ${
             section === 'tasks'
-              ? 'bg-white/[0.08] text-obsidian-inkPrimary'
-              : 'text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-white/[0.04]'
+              ? 'bg-obsidian-surface2 text-obsidian-inkPrimary'
+              : 'text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface1'
           }`}
         >
           <ListChecks className="w-3.5 h-3.5 opacity-70" aria-hidden="true" />
@@ -320,55 +361,65 @@ export const ManagerSidebar: React.FC<ManagerSidebarProps> = ({
         </button>
       </nav>
 
-      {/* Scrollable lower section */}
-      <div className="flex-1 overflow-y-auto py-2 min-h-0">
+      {/* Scrollable labeled groups */}
+      <div className="flex-1 overflow-y-auto min-h-0 pt-4 pb-3">
         {section === 'tasks' ? (
-          <TaskManagerPanel />
+          <section aria-label="Automations">
+            <div className={`${SECTION_LABEL_CLASSES} px-3 pb-1.5`}>Automations</div>
+            <TaskManagerPanel />
+          </section>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {(pinnedSessions.length > 0 || isLoading) && (
               <section aria-label="Pinned conversations">
-                <div className="px-3 pb-1 text-[10px] font-mono uppercase tracking-wider text-obsidian-inkMuted">
-                  Pinned Conversations
-                </div>
+                <div className={`${SECTION_LABEL_CLASSES} px-3 pb-1.5`}>Pinned</div>
                 {renderHistoryList(pinnedSessions, 'Pin a conversation to keep it here')}
               </section>
             )}
-            <section aria-label="Conversations">
-              <div className="px-3 pb-1 text-[10px] font-mono uppercase tracking-wider text-obsidian-inkMuted">
-                Conversations
-              </div>
+            <section aria-label="Recent conversations">
+              <div className={`${SECTION_LABEL_CLASSES} px-3 pb-1.5`}>Recent</div>
               {renderHistoryList(unpinnedSessions, 'No conversations yet — start one below')}
             </section>
           </div>
         )}
       </div>
 
-      {/* Projects footer */}
-      <div className="border-t border-obsidian-hairline p-3 pb-2 shrink-0">
-        <div className="px-0 pb-1.5 text-[10px] font-mono uppercase tracking-wider text-obsidian-inkMuted">
-          Projects
-        </div>
-        <WorkspaceMenu workspaceName={workspaceName} />
+      {/* Footer groups: project + tools */}
+      <div className="border-t border-obsidian-hairline px-2 pt-3 pb-2 shrink-0">
+        <section aria-label="Project workspace">
+          <div className={`${SECTION_LABEL_CLASSES} px-2 pb-1.5`}>Projects</div>
+          <WorkspaceMenu workspaceName={workspaceName} />
+        </section>
 
-        {/* Settings entry point */}
-        <button
-          onClick={() => setSettingsOpen(true)}
-          className="mt-1 w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-white/[0.04] transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
-        >
-          <Settings className="w-3.5 h-3.5 opacity-70" aria-hidden="true" />
-          <span>Settings</span>
-        </button>
-
-        {/* Sole QR-pairing entry in Manager mode — opens the shared pairing modal */}
-        <button
-          onClick={() => setQRPairingOpen(true)}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-white/[0.04] transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
-          title="Pair the mobile companion over LAN"
-        >
-          <QrCode className="w-3.5 h-3.5 opacity-70" aria-hidden="true" />
-          <span>Pair Phone (QR)</span>
-        </button>
+        <section aria-label="Tools" className="mt-3">
+          <div className={`${SECTION_LABEL_CLASSES} px-2 pb-1.5`}>Tools & Capabilities</div>
+          <div className="space-y-0.5">
+            <button
+              type="button"
+              onClick={() => setSkillsModalOpen(true)}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-medium text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors duration-150 cursor-pointer focus-visible:outline-none"
+            >
+              <Puzzle className="w-3.5 h-3.5 text-obsidian-inkSecondary" aria-hidden="true" />
+              <span>Skills & Plugins</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setQRPairingOpen(true)}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-medium text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors duration-150 cursor-pointer focus-visible:outline-none"
+            >
+              <QrCode className="w-3.5 h-3.5 text-obsidian-inkSecondary" aria-hidden="true" />
+              <span>Mobile QR Connect</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-medium text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors duration-150 cursor-pointer focus-visible:outline-none"
+            >
+              <Settings className="w-3.5 h-3.5 text-obsidian-inkSecondary" aria-hidden="true" />
+              <span>Settings</span>
+            </button>
+          </div>
+        </section>
       </div>
     </aside>
   );

@@ -3,139 +3,656 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Reset ────────────────────────────────────────────────────────────────── */
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+}
+
 body {
   background-color: var(--bg-canvas);
   color: var(--ink-primary);
   font-family: var(--font-sans);
-  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
   letter-spacing: -0.012em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
   overflow: hidden;
   user-select: none;
+  /* NOTE: do NOT set color-scheme here — tokens.css already sets it per theme
+     on :root[data-theme='dark'|'light']. A hardcoded value here made form
+     controls and native scrollbars render dark even in light mode. */
 }
 
-/* Calm elevated surfaces: depth comes from spacing and hairlines, not neon glow */
+::selection {
+  background: var(--selection-bg);
+  color: var(--ink-primary);
+}
+
+/* Allow text selection only where it matters (input, code, content). */
+input,
+textarea,
+[contenteditable='true'],
+.selectable,
+.selectable * {
+  user-select: text;
+}
+
+/* ── Windows Desktop Native Window Dragging ──────────────────────────────── */
+.app-region-drag {
+  -webkit-app-region: drag;
+}
+
+.app-region-no-drag,
+.app-region-drag button,
+.app-region-drag a,
+.app-region-drag input,
+.app-region-drag select,
+.app-region-drag textarea,
+.app-region-drag [role="button"],
+.app-region-drag [role="menu"],
+.app-region-drag [role="menuitem"] {
+  -webkit-app-region: no-drag;
+}
+
+/* ── Premium surfaces ─────────────────────────────────────────────────────── */
 .glass-panel {
-  background: rgba(21, 22, 28, 0.94);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--hairline);
+  background: var(--glass-panel-bg);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid var(--hairline-light);
+  border-radius: var(--r-4);
+  box-shadow: var(--shadow-md);
 }
 
 .glass-dropdown {
-  background: rgba(27, 28, 35, 0.98);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: var(--glass-dropdown-bg);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
   border: 1px solid var(--hairline-light);
-  box-shadow: 0 16px 32px -12px rgba(0, 0, 0, 0.58);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-pop);
+}
+
+.elevated-card {
+  background: var(--bg-surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-3);
+  transition: border-color var(--t-2) var(--ease), background-color var(--t-2) var(--ease);
+}
+
+.elevated-card:hover {
+  border-color: var(--hairline-light);
+  background: var(--bg-surface-2);
 }
 
 .hairline-border {
   box-shadow: 0 0 0 1px var(--hairline);
 }
+.hairline-b { border-bottom: 1px solid var(--hairline); }
+.hairline-t { border-top: 1px solid var(--hairline); }
+.hairline-r { border-right: 1px solid var(--hairline); }
+.hairline-l { border-left: 1px solid var(--hairline); }
 
-.hairline-b {
-  border-bottom: 1px solid var(--hairline);
-}
-
-.hairline-t {
-  border-top: 1px solid var(--hairline);
-}
-
-.hairline-r {
-  border-right: 1px solid var(--hairline);
-}
-
-.hairline-l {
-  border-left: 1px solid var(--hairline);
-}
-
-/* Subtle Ambient Glow */
+/* ── Ambient glow (very subtle top-mounted radial) ────────────────────────── */
 .ambient-glow {
-  background: radial-gradient(circle at 50% 0%, rgba(139, 156, 255, 0.08) 0%, transparent 70%);
+  position: relative;
+}
+.ambient-glow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% -20%, var(--ambient-wash) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+.ambient-glow > * {
+  position: relative;
+  z-index: 1;
 }
 
 .ambient-glow-purple {
-  background: radial-gradient(circle at 50% 0%, rgba(139, 156, 255, 0.05) 0%, transparent 70%);
+  position: relative;
+}
+.ambient-glow-purple::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% -20%, var(--ambient-wash-accent) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+.ambient-glow-purple > * {
+  position: relative;
+  z-index: 1;
 }
 
-/* Sleek Scrollbars */
+/* ── Scrollbars: minimal, premium ──────────────────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.13);
+  background: var(--scrollbar-thumb);
   border-radius: 9999px;
+  transition: background var(--t-2) var(--ease);
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.24);
+  background: var(--scrollbar-hover);
 }
 
-/* Focus and input resets */
-input:focus, textarea:focus, select:focus {
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* ── Focus rings: premium, never harsh ─────────────────────────────────────── */
+input:focus:not(.bg-transparent),
+textarea:focus:not(.bg-transparent),
+select:focus,
+button:focus-visible,
+[role='button']:focus-visible,
+a:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 1px var(--accent-blue), 0 0 0 3px var(--accent-glow);
+  box-shadow:
+    0 0 0 1px var(--hairline-accent),
+    0 0 0 4px var(--focus-halo);
+  border-color: var(--hairline-accent);
+}
+
+/* Clear square focus box from transparent composer textareas */
+textarea.bg-transparent,
+textarea.bg-transparent:focus,
+input.bg-transparent,
+input.bg-transparent:focus {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+}
+
+input,
+textarea {
+  caret-color: var(--accent-silver);
 }
 
 .code-font {
   font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;
 }
 
-/* Clean Obsidian Checkbox */
-input[type="checkbox"] {
+/* ── Checkboxes (refined) ──────────────────────────────────────────────────── */
+input[type='checkbox'] {
   appearance: none;
   -webkit-appearance: none;
   width: 14px;
   height: 14px;
   border-radius: 3px;
-  border: 1px solid var(--hairline-light, rgba(255, 255, 255, 0.2));
-  background-color: var(--bg-surface-2, #18191e);
+  border: 1px solid var(--hairline-light);
+  background-color: var(--bg-surface-2);
   cursor: pointer;
   display: inline-grid;
   place-content: center;
-  transition: all 0.15s ease;
+  transition: all var(--t-1) var(--ease);
   vertical-align: middle;
+  flex-shrink: 0;
+}
+input[type='checkbox']:hover {
+  border-color: var(--hairline-bright);
+}
+input[type='checkbox']:checked {
+  background-color: var(--ink-primary);
+  border-color: var(--ink-primary);
+}
+input[type='checkbox']:checked::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  background-color: var(--ink-inverse);
+  clip-path: polygon(
+    14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%
+  );
 }
 
-input[type="checkbox"]:checked {
-  background-color: var(--ink-primary, #ffffff);
-  border-color: var(--ink-primary, #ffffff);
+input[type='radio'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  border: 1px solid var(--hairline-light);
+  background-color: var(--bg-surface-2);
+  cursor: pointer;
+  transition: all var(--t-1) var(--ease);
+  position: relative;
+}
+input[type='radio']:checked {
+  border-color: var(--ink-primary);
+}
+input[type='radio']:checked::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 9999px;
+  background: var(--ink-primary);
 }
 
-input[type="checkbox"]:checked::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
-  transform: scale(0.9);
-  background-color: var(--bg-canvas, #000000);
+/* ── Premium primitive classes (for the composer + chips) ──────────────────── */
+
+/* Pill chip — used for category tags, mode toggles */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--ink-secondary);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: 9999px;
+  transition: all var(--t-2) var(--ease);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chip:hover {
+  color: var(--ink-primary);
+  background: var(--bg-surface-3);
+  border-color: var(--hairline-light);
+}
+.chip[data-active='true'] {
+  color: var(--ink-inverse);
+  background: var(--ink-primary);
+  border-color: var(--ink-primary);
+}
+.chip[data-active='true']:hover {
+  background: var(--accent-hover);
 }
 
-input[type="checkbox"]:focus {
+.chip-ghost {
+  background: transparent;
+  border-color: transparent;
+}
+.chip-ghost:hover {
+  background: var(--bg-surface-2);
+  border-color: var(--hairline);
+}
+
+/* Premium composer — the centerpiece of the chat UI */
+.composer {
+  position: relative;
+  background: var(--bg-surface-1);
+  border: 1px solid var(--hairline-light);
+  border-radius: var(--r-4);
+  transition:
+    border-color var(--t-2) var(--ease),
+    box-shadow var(--t-2) var(--ease),
+    background-color var(--t-2) var(--ease);
+}
+.composer:hover {
+  border-color: var(--hairline-bright);
+}
+.composer:focus-within {
+  border-color: var(--hairline-accent);
+  box-shadow:
+    0 0 0 1px var(--hairline-accent),
+    0 0 0 4px var(--focus-halo),
+    var(--shadow-lg);
+  background: var(--bg-surface-2);
+}
+.composer[data-disabled='true'] {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* Icon button — 32px premium touch-target */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-2);
+  color: var(--ink-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    color var(--t-1) var(--ease),
+    background-color var(--t-1) var(--ease),
+    border-color var(--t-1) var(--ease),
+    transform var(--t-1) var(--ease);
+}
+.icon-btn:hover {
+  color: var(--ink-primary);
+  background: var(--bg-surface-2);
+  border-color: var(--hairline);
+}
+.icon-btn:active {
+  transform: scale(0.94);
+}
+.icon-btn[data-tone='primary'] {
+  color: var(--ink-inverse);
+  background: var(--ink-primary);
+}
+.icon-btn[data-tone='primary']:hover {
+  background: var(--accent-hover);
+}
+.icon-btn[aria-pressed='true'] {
+  color: var(--ink-primary);
+  background: var(--bg-surface-3);
+  border-color: var(--hairline-light);
+}
+
+/* Compact icon button — 24px, for dense panel headers (VS Code-style section
+   action rows). Same token contract as .icon-btn, just a tighter target. */
+.icon-btn-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-2);
+  color: var(--ink-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    color var(--t-1) var(--ease),
+    background-color var(--t-1) var(--ease),
+    border-color var(--t-1) var(--ease);
+}
+.icon-btn-sm:hover {
+  color: var(--ink-primary);
+  background: var(--bg-surface-3);
+  border-color: var(--hairline);
+}
+.icon-btn-sm:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
+  border-color: var(--accent);
+}
+.icon-btn-sm[aria-pressed='true'] {
+  color: var(--ink-primary);
+  background: var(--bg-surface-3);
+  border-color: var(--hairline-light);
 }
 
-/* Subtle Shimmer Animation */
-@keyframes subtle-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.85; transform: scale(1.02); }
+/* Panel section header — uppercase tracked title with a right-aligned action
+   row. Used by the primary sidebar so its collapse control lives on the panel
+   it actually collapses. */
+.panel-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 35px;
+  padding-left: 20px;
+  padding-right: 8px;
+  flex-shrink: 0;
+  user-select: none;
+}
+.panel-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.animate-subtle-pulse {
-  animation: subtle-pulse 3s infinite ease-in-out;
+/* Premium ghost button */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--r-2);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--ink-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all var(--t-1) var(--ease);
 }
+.btn-ghost:hover {
+  color: var(--ink-primary);
+  background: var(--bg-surface-2);
+  border-color: var(--hairline);
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--r-2);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--ink-inverse);
+  background: var(--ink-primary);
+  border: 1px solid var(--ink-primary);
+  cursor: pointer;
+  transition: all var(--t-1) var(--ease);
+  box-shadow: 0 1px 0 var(--btn-primary-inset) inset;
+}
+.btn-primary:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -2px var(--btn-primary-lift);
+}
+.btn-primary:active {
+  transform: translateY(0);
+}
+.btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Outlined variant */
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--r-2);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--ink-primary);
+  background: var(--bg-surface-1);
+  border: 1px solid var(--hairline-light);
+  cursor: pointer;
+  transition: all var(--t-1) var(--ease);
+}
+.btn-outline:hover {
+  background: var(--bg-surface-2);
+  border-color: var(--hairline-bright);
+}
+
+/* Live pulse indicator */
+.live-pulse {
+  position: relative;
+}
+.live-pulse::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0.6;
+  animation: livePulse 2s var(--ease) infinite;
+}
+@keyframes livePulse {
+  0%, 100% { transform: scale(1); opacity: 0.4; }
+  50% { transform: scale(1.6); opacity: 0; }
+}
+
+@keyframes thinkingShimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--shimmer),
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: thinkingShimmer 2.4s linear infinite;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.anim-fade-up {
+  animation: fadeUp var(--t-3) var(--ease-out) both;
+}
+
+@keyframes appear {
+  from { opacity: 0; transform: scale(0.98); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.anim-appear {
+  animation: appear var(--t-2) var(--ease-out) both;
+}
+
+@keyframes spinSlow {
+  to { transform: rotate(360deg); }
+}
+.anim-spin-slow {
+  animation: spinSlow 4s linear infinite;
+}
+
+/* ── Old utilities kept for backward-compat with existing component code ───── */
+.anim-fade-in {
+  animation: fadeUp var(--t-2) var(--ease) both;
+}
+
+/* ── Live status animations (status banner rotation, heartbeat) ────────── */
+
+/* Smooth cross-fade used when the rotating status label swaps. The key
+   change on the element is what triggers re-run; opacity goes 0 → 1 over
+   280ms so the user never sees a hard text snap. */
+@keyframes rotateLabel {
+  0%   { opacity: 0; transform: translateY(-2px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.anim-rotate-label {
+  animation: rotateLabel 280ms var(--ease-out) both;
+}
+
+/* Three-bar heartbeat for the live ticker. The companion CSS sets
+   animation-delay per bar so they fire in sequence; this gives a stronger
+   sense of liveness than a flat dot. */
+@keyframes heartbeatBar {
+  0%, 100% { transform: scaleY(0.4); opacity: 0.4; }
+  50%      { transform: scaleY(1);   opacity: 1; }
+}
+.anim-heartbeat {
+  animation: heartbeatBar 1.1s var(--ease) infinite;
+  transform-origin: bottom center;
+}
+
+/* Thinking stream ellipsis — three dots that fill in/out so a long thinking
+   trace never reads as frozen between model chunks. */
+@keyframes thinkingDots {
+  0%, 100% { opacity: 0.2; }
+  50%      { opacity: 0.9; }
+}
+.anim-thinking-dot {
+  animation: thinkingDots 1.4s var(--ease) infinite;
+}
+
+/* Soft glow used by the new "active mode" chip so the dropdown selection is
+   always obvious without resorting to a saturated color block. */
+@keyframes chipGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(184, 156, 217, 0); }
+  50%      { box-shadow: 0 0 0 4px rgba(184, 156, 217, 0.18); }
+}
+.anim-chip-glow {
+  animation: chipGlow 2.6s var(--ease) infinite;
+}
+
+/* Slide-in used for new chat bubbles. */
+@keyframes bubbleIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.99); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+.anim-bubble-in {
+  animation: bubbleIn 220ms var(--ease-out) both;
+}
+
+/* Subtle horizontal sweep used by the "Astra is working" dot at the start
+   of the assistant bubble when the run is in flight. */
+@keyframes sweepDot {
+  0%   { transform: translateX(-100%); opacity: 0; }
+  20%  { opacity: 1; }
+  100% { transform: translateX(200%);  opacity: 0; }
+}
+.anim-sweep-dot {
+  animation: sweepDot 1.8s var(--ease) infinite;
+}
+
+/* ── Squared boxes grid background pattern ────────────────────────── */
+.bg-grid-pattern {
+  background-image:
+    linear-gradient(to right, var(--hairline-light) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--hairline-light) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.bg-grid-mask {
+  mask-image: radial-gradient(ellipse 75% 65% at 50% 45%, black 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse 75% 65% at 50% 45%, black 30%, transparent 80%);
+}
+
+/* ── Modern Performance & Smoothness ───────────────────────────────────────── */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Defer rendering of offscreen cards and transcript items to eliminate scroll stutter */
+.defer-render {
+  content-visibility: auto;
+  contain-intrinsic-size: auto none auto 100px;
+}
+
+/* GPU composite hints for ultra-smooth 60/120Hz transitions */
+.hardware-accelerated {
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Layout containment for isolated panels */
+.contain-panel {
+  contain: layout style;
+}
+

@@ -163,10 +163,22 @@ function runTaskViaLoopback(prompt: string, port: number): Promise<string> {
 
 /** Runs a task immediately (Run-now button) and persists the result. */
 export async function runTaskViaLoopbackForTask(task: ScheduledTask, port: number = 3001): Promise<string> {
-  db.prepare('UPDATE scheduler_tasks SET last_run_at = ?, last_result = ? WHERE id = ?').run(Date.now(), 'Running…', task.id);
-  const result = await runTaskViaLoopback(task.prompt, port);
-  db.prepare('UPDATE scheduler_tasks SET last_run_at = ?, last_result = ? WHERE id = ?').run(Date.now(), result, task.id);
-  return result;
+  if (executing) {
+    return 'Another scheduled or manual task is currently executing. Please wait for it to finish.';
+  }
+  executing = true;
+  try {
+    db.prepare('UPDATE scheduler_tasks SET last_run_at = ?, last_result = ? WHERE id = ?').run(Date.now(), 'Running…', task.id);
+    const result = await runTaskViaLoopback(task.prompt, port);
+    db.prepare('UPDATE scheduler_tasks SET last_run_at = ?, last_result = ? WHERE id = ?').run(Date.now(), result, task.id);
+    return result;
+  } catch (err: any) {
+    const errorMsg = `Run failed: ${err?.message || 'unknown error'}`;
+    db.prepare('UPDATE scheduler_tasks SET last_run_at = ?, last_result = ? WHERE id = ?').run(Date.now(), errorMsg, task.id);
+    return errorMsg;
+  } finally {
+    executing = false;
+  }
 }
 
 /** Starts the 30s due-check loop. `port` is the HTTP port for loopback runs. */

@@ -44,9 +44,13 @@ describe('LSPManager', () => {
 
   afterAll(async () => {
     await lspManager.shutdown();
-    // Cleanup test directory
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    try {
+      if (fs.existsSync(testDir)) {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      }
+    } catch {
+      // Allow temp directory cleanup by OS if handle is briefly held on Windows
     }
   });
 
@@ -55,18 +59,30 @@ describe('LSPManager', () => {
   });
 
   it('should detect diagnostics for a file with errors', async () => {
-    // Open the document to trigger diagnostics
     const content = fs.readFileSync(testFilePath, 'utf-8');
-    await lspManager.didOpen(testFilePath, 'typescript', content);
 
-    // Wait a bit for diagnostics to arrive
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const diagPromise = new Promise<void>((resolve) => {
+      const handler = () => {
+        if ((lspManager.getDiagnostics(testFilePath) || []).length > 0) {
+          lspManager.off('diagnostics', handler);
+          resolve();
+        }
+      };
+      lspManager.on('diagnostics', handler);
+      setTimeout(() => {
+        lspManager.off('diagnostics', handler);
+        resolve();
+      }, 12000);
+    });
+
+    await lspManager.didOpen(testFilePath, 'typescript', content);
+    await diagPromise;
 
     const diagnostics = lspManager.getDiagnostics(testFilePath);
     expect(diagnostics).toBeDefined();
     // Should have at least one error (type mismatch)
     expect(diagnostics.length).toBeGreaterThan(0);
-  });
+  }, 15000);
 
   it('should find definition of a function', async () => {
     const content = fs.readFileSync(testFilePath, 'utf-8');

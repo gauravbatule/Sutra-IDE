@@ -10,8 +10,8 @@ export const AntiSlopAuditor: React.FC = () => {
   const result = AntiSlopLinter.evaluateCode(activeTab?.content || '');
 
   return (
-    <div className="p-4 bg-obsidian-surface3/90 border border-white/10 rounded-xl text-xs space-y-3 shadow-xl">
-      <div className="flex items-center justify-between border-b border-white/5 pb-2">
+    <div className="p-4 bg-obsidian-surface3/90 border border-obsidian-border rounded-xl text-xs space-y-3 shadow-xl">
+      <div className="flex items-center justify-between border-b border-obsidian-hairline pb-2">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-obsidian-inkPrimary" />
           <span className="font-bold text-obsidian-inkPrimary">Anti-Slop Visual QA Scorecard</span>
@@ -38,7 +38,7 @@ export const AntiSlopAuditor: React.FC = () => {
           ))}
         </div>
       ) : (
-        <div className="flex items-center gap-2 text-obsidian-inkPrimary text-[11px] p-2 bg-white/[0.04] rounded border border-white/10">
+        <div className="flex items-center gap-2 text-obsidian-inkPrimary text-[11px] p-2 bg-obsidian-surface1 rounded border border-obsidian-border">
           <CheckCircle2 className="w-4 h-4" />
           <span>Zero AI slop detected. High-craft typography & hairline standards verified.</span>
         </div>

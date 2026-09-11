@@ -1,6 +1,7 @@
-MIT License
+MIT License with Attribution Requirement
 
-Copyright (c) 2026 SUTRA contributors
+Copyright (c) 2026 Gaurav Batule (https://github.com/gauravbatule)
+Project: SUTRA IDE (https://github.com/gauravbatule/Sutra-IDE)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -9,8 +10,16 @@ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. The above copyright notice, this permission notice, and the attribution clause
+   below shall be included in all copies or substantial portions of the Software.
+
+2. ATTRIBUTION REQUIREMENT: Any person, team, organization, or entity reusing,
+   redistributing, modifying, forking, or incorporating any portion of this
+   Software (or derivative works based upon it) in any public repository, product,
+   application, website, service, or distribution MUST provide clear, visible,
+   and prominent credit and attribution to the original author, Gaurav Batule,
+   and link back to the official project repository:
+   https://github.com/gauravbatule/Sutra-IDE
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,

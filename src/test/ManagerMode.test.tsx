@@ -48,7 +48,7 @@ import { ConversationList } from '../components/Manager/ConversationList.js';
 import { AskUserCard } from '../components/Common/AskUserCard.js';
 import { ActivityPanel } from '../components/Manager/ActivityPanel.js';
 import { formatRelativeTime, formatCompactTimestamp, type ChatSessionSummary as SessionRow } from '../components/Manager/useChatSessions.js';
-import type { OmniAgentMessage, ProjectAsset, SubagentState, ToolCallPayload } from '../types/ide.js';
+import type { SutraAgentMessage, ProjectAsset, SubagentState, ToolCallPayload } from '../types/ide.js';
 
 // AskUserCard must never open a real socket in unit tests — assert the
 // agent_answer contract through this mock instead.
@@ -274,7 +274,7 @@ describe('ManagerComposer', () => {
 
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
-    expect(onSend).toHaveBeenCalledWith('Build me a dashboard', null);
+    expect(onSend).toHaveBeenCalledWith('Build me a dashboard', null, [], 'build');
     await waitFor(() => expect(textarea.value).toBe(''));
   });
 
@@ -324,7 +324,9 @@ describe('ManagerComposer', () => {
     await waitFor(() =>
       expect(onSend).toHaveBeenCalledWith(
         'summarize this',
-        expect.objectContaining({ name: 'notes.txt', content: 'hello attachment body' })
+        expect.objectContaining({ name: 'notes.txt', content: 'hello attachment body' }),
+        [],
+        'build'
       )
     );
   });
@@ -354,7 +356,7 @@ describe('ManagerComposer', () => {
     fetchMock.mockRestore();
   });
 
-  it('shows the MCP pill with connected count and opens Settings on click', async () => {
+  it('shows the tools dropdown with connection details', async () => {
     useIDEStore.setState({ isSettingsOpen: false });
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
@@ -370,9 +372,11 @@ describe('ManagerComposer', () => {
         ) as unknown as Response;
       });
     renderComposer();
-    expect(await screen.findByText('MCP · 1')).toBeInTheDocument();
+    expect(await screen.findByText('Tools · 1')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /mcp/i }));
+    fireEvent.click(screen.getByRole('button', { name: /mcp server available/i }));
+    expect(await screen.findByText('fs')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: /manage connections/i }));
     expect(useIDEStore.getState().isSettingsOpen).toBe(true);
     fetchMock.mockRestore();
   });
@@ -454,7 +458,7 @@ describe('ActivityPanel', () => {
     ...overrides,
   });
 
-  const welcomeOnly: OmniAgentMessage[] = [
+  const welcomeOnly: SutraAgentMessage[] = [
     { id: 'msg-welcome', role: 'assistant', content: 'Hello', timestamp: Date.now() },
   ];
 
@@ -473,8 +477,15 @@ describe('ActivityPanel', () => {
 
     expect(screen.getByText('Ready')).toBeInTheDocument();
     expect(screen.getByText('No files changed yet')).toBeInTheDocument();
+
+    // Secondary sections are collapsed by default — open each to verify its empty state is reachable
+    fireEvent.click(screen.getByRole('button', { name: /work items/i }));
+    expect(screen.getByText('Plans, builds & reports land here')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /artifacts/i }));
     expect(screen.getByText('No artifacts yet')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /background tasks/i }));
     expect(screen.getByText('No background tasks yet')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /subagents/i }));
     expect(screen.getByText('No subagents running')).toBeInTheDocument();
   });
 
@@ -533,22 +544,26 @@ describe('ActivityPanel', () => {
 
     render(<ActivityPanel />);
 
-    // Status summary — numbers chosen to be unique against section count badges
-    expect(screen.getByText('Astra is working')).toBeInTheDocument();
+    // Status summary
+    expect(screen.getByText('Working…')).toBeInTheDocument();
     expect(screen.getByText('SUTRA Auto')).toBeInTheDocument(); // default activeModel
-    expect(screen.getByText('3')).toBeInTheDocument(); // rounds (assistant msgs minus welcome)
-    expect(screen.getByText('6')).toBeInTheDocument(); // total tool calls
 
     // Files Changed — grouped by basename, latest status wins
     expect(screen.getAllByText('main.tsx')).toHaveLength(1);
     expect(screen.getByText('legacy.ts')).toBeInTheDocument();
     expect(screen.getByText('Running')).toBeInTheDocument();
 
-    // Artifacts — from tool calls plus the media asset store
+    // Artifacts — collapsed by default (audit: secondary sections hidden until
+    // expanded); open the section, then assert its contents.
+    fireEvent.click(screen.getByRole('button', { name: /artifacts/i }));
     expect(screen.getByText('hero.png')).toBeInTheDocument();
     expect(screen.getByText('brand.svg')).toBeInTheDocument();
 
-    // Background Tasks — counts plus latest command (last run_command wins)
+    // Background Tasks + Subagents — collapsed by default (audit); open each, then assert.
+    fireEvent.click(screen.getByRole('button', { name: /background tasks/i }));
+    fireEvent.click(screen.getByRole('button', { name: /subagents/i }));
+
+    // Background Tasks counts plus latest command (last run_command wins)
     expect(screen.getByText('1 running')).toBeInTheDocument();
     expect(screen.getByText('0 completed')).toBeInTheDocument();
     expect(screen.getByText('1 failed')).toBeInTheDocument();

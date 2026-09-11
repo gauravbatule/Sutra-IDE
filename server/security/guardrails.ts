@@ -26,13 +26,13 @@ const SECRET_PATTERNS = [
   /Bearer\s+[a-zA-Z0-9_\-.]{20,}/gi,
 ];
 
-/**
- * Dangerous Command Patterns (Hardblocked to prevent catastrophic OS damage or credential exfiltration)
- */
 const DESTRUCTIVE_COMMAND_PATTERNS = [
-  // System Root / Drive Wiping
-  /rmdir\s+[/\\]s\s+[/\\]q\s+[a-zA-Z]:\\?/i,
-  /del\s+[/\\]f\s+[/\\]s\s+[/\\]q\s+[a-zA-Z]:\\?/i,
+  // System Root / Drive Wiping (Windows cmd flag reordering)
+  /(?:rmdir|rd)(?:\.exe)?(?=.*?[/\\]s)(?=.*?[/\\]q)\s+.*?[a-zA-Z]:\\?/i,
+  /(?:del|erase)(?:\.exe)?(?=.*?[/\\]f)(?=.*?[/\\]s)(?=.*?[/\\]q)\s+.*?[a-zA-Z]:\\?/i,
+  // PowerShell recursive wipe of drive roots
+  /(?:Remove-Item|ri)\s+.*?(?:-Recurse\s+.*?-Force|-Force\s+.*?-Recurse)\s+.*?[a-zA-Z]:\\?/i,
+  // Unix root wiping
   /rm\s+-rf\s+[/\\](?:\s|$)/i,
   /rm\s+-rf\s+\/home(?:\s|$)/i,
   /rm\s+-rf\s+\/root(?:\s|$)/i,
@@ -47,8 +47,9 @@ const DESTRUCTIVE_COMMAND_PATTERNS = [
   /:(){ :|:& };:/,
   // Direct Exfiltration of .env / secrets via network utilities
   /(?:curl|wget|Invoke-WebRequest|Invoke-RestMethod|nc|netcat|ncat|bash\s+-i|sh\s+-i).*?(?:\.env|\.ssh|id_rsa|id_ed25519)/i,
-  // Killing critical OS processes
-  /taskkill\s+\/f\s+\/im\s+(?:explorer\.exe|svchost\.exe|csrss\.exe|lsass\.exe)/i,
+  // Killing critical OS processes (cmd and powershell variants)
+  /(?:taskkill(?:\.exe)?(?=.*?[/\\]f)(?=.*?[/\\]im\s+(?:explorer\.exe|svchost\.exe|csrss\.exe|lsass\.exe)))/i,
+  /(?:Stop-Process|kill)\s+.*?-Name\s+(?:explorer|svchost|csrss|lsass)\b/i,
 ];
 
 export class SecurityGuardrails {
@@ -68,7 +69,7 @@ export class SecurityGuardrails {
    * Validates if a filesystem path is securely strictly confined within the workspace root
    */
   public static validateSafePath(targetPath: string, workspaceRoot: string): string {
-    if (typeof targetPath !== 'string' || targetPath.length === 0) {
+    if (typeof targetPath !== 'string' || targetPath.trim().length === 0) {
       throw new Error('Security Violation: Path must be a non-empty string.');
     }
     // NUL byte truncates the path at the syscall layer, letting "safe.txt\0../../etc" pass
@@ -77,14 +78,23 @@ export class SecurityGuardrails {
       throw new Error('Security Violation: Path contains a NUL byte.');
     }
 
-    const rootResolved = path.resolve(workspaceRoot);
-    const resolved = path.resolve(rootResolved, targetPath);
+    const stripPrefix = (p: string) => p.replace(/^\\\\\?\\/i, '');
+    const rootResolved = stripPrefix(path.resolve(workspaceRoot));
+
+    // Strip leading slash on non-drive paths so "/src/App.tsx" or "/index.html" resolves inside the workspace on Windows
+    let cleanTarget = targetPath.trim();
+    if (!/^[a-zA-Z]:[/\\]/i.test(cleanTarget)) {
+      cleanTarget = cleanTarget.replace(/^[/\\]+/, '');
+    }
+    const resolved = stripPrefix(path.resolve(rootResolved, cleanTarget));
 
     const isInside = (root: string, candidate: string): boolean => {
+      const cleanR = stripPrefix(root);
+      const cleanC = stripPrefix(candidate);
       // Compare case-insensitively on Windows/macOS, case-sensitively elsewhere.
       const caseFold = process.platform === 'win32' || process.platform === 'darwin';
-      const r = caseFold ? root.toLowerCase() : root;
-      const c = caseFold ? candidate.toLowerCase() : candidate;
+      const r = caseFold ? cleanR.toLowerCase() : cleanR;
+      const c = caseFold ? cleanC.toLowerCase() : cleanC;
       if (r === c) return true;
       const rel = path.relative(r, c);
       return rel.length > 0 && !rel.startsWith('..') && !path.isAbsolute(rel);
@@ -104,8 +114,8 @@ export class SecurityGuardrails {
         probe = parent;
       }
       if (fs.existsSync(probe)) {
-        const realProbe = fs.realpathSync(probe);
-        const realRoot = fs.realpathSync(rootResolved);
+        const realProbe = stripPrefix(fs.realpathSync(probe));
+        const realRoot = stripPrefix(fs.realpathSync(rootResolved));
         if (!isInside(realRoot, realProbe)) {
           throw new Error(
             `Security Violation: Path "${targetPath}" resolves through a symlink to "${realProbe}", outside the workspace root.`
@@ -205,13 +215,50 @@ ${sanitizedEntities}
   }
 
   /**
-   * Truncates excessively large tool outputs to prevent context window explosion
+   * Bi-Directional Head+Tail Folding:
+   * Preserves top 25% (command invocation, boot headers) and bottom 70% (error stack traces, failure locations, test outcomes),
+   * cleanly folding the uninformative intermediate dump with exact line counts.
    */
   public static truncateToolOutput(content: string, maxChars = 20000, hint?: string): string {
     if (!content || content.length <= maxChars) return content;
-    const truncatedPart = content.slice(0, maxChars);
-    const remainingChars = content.length - maxChars;
-    return `${truncatedPart}\n\n... [TRUNCATED ${remainingChars} CHARACTERS TO PROTECT CONTEXT BUDGET. ${hint || 'Use specific line ranges or grep to inspect remaining sections.'}]`;
+
+    const lines = content.split('\n');
+    if (lines.length <= 10) {
+      const headChars = Math.floor(maxChars * 0.25);
+      const tailChars = Math.floor(maxChars * 0.70);
+      const head = content.slice(0, headChars);
+      const tail = content.slice(-tailChars);
+      const omitted = content.length - (head.length + tail.length);
+      return `${head}\n\n... [FOLDED ${omitted} CHARACTERS (MIDDLE CHUNK)] ...\n\n${tail}`;
+    }
+
+    const headBudget = Math.floor(maxChars * 0.25);
+    const tailBudget = Math.floor(maxChars * 0.70);
+
+    const headLines: string[] = [];
+    let headChars = 0;
+    for (let i = 0; i < lines.length; i++) {
+      if (headChars + lines[i].length + 1 > headBudget) break;
+      headLines.push(lines[i]);
+      headChars += lines[i].length + 1;
+    }
+
+    const tailLines: string[] = [];
+    let tailChars = 0;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (tailChars + lines[i].length + 1 > tailBudget) break;
+      tailLines.unshift(lines[i]);
+      tailChars += lines[i].length + 1;
+    }
+
+    const omittedLines = Math.max(0, lines.length - (headLines.length + tailLines.length));
+    const omittedChars = Math.max(0, content.length - (headChars + tailChars));
+
+    return [
+      headLines.join('\n'),
+      `\n... [FOLDED ${omittedLines} INTERMEDIATE LINES (${omittedChars} CHARACTERS) — PRESERVING TOP CONTEXT & RECENT DIAGNOSTIC TAIL. ${hint || 'Use specific grep/line-ranges to inspect full trace.'}] ...\n`,
+      tailLines.join('\n'),
+    ].join('\n');
   }
 
   private static escapeXmlAttr(str: string): string {

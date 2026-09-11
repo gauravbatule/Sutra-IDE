@@ -48,17 +48,17 @@ export const UserGuideModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 animate-in fade-in">
-      <div className="w-full max-w-5xl h-[88vh] bg-[#0c0d10] border border-white/10 rounded-2xl flex flex-col overflow-hidden shadow-2xl">
+      <div className="w-full max-w-5xl h-[88vh] bg-obsidian-canvas border border-obsidian-border rounded-2xl flex flex-col overflow-hidden shadow-2xl">
         {/* Modal Header */}
-        <header className="h-14 px-6 border-b border-white/[0.08] bg-[#0f1117] flex items-center justify-between shrink-0">
+        <header className="h-14 px-6 border-b border-obsidian-border bg-obsidian-surface1 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-white/[0.06] border border-white/[0.1] flex items-center justify-center text-obsidian-inkPrimary">
+            <div className="w-8 h-8 rounded-lg bg-obsidian-surface2 border border-obsidian-border flex items-center justify-center text-obsidian-inkPrimary">
               <BookOpen className="w-4 h-4" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-sm font-bold tracking-tight text-obsidian-inkPrimary">SUTRA Studio — User Guide</h2>
-                <span className="px-2 py-0.5 rounded bg-white/[0.06] border border-white/[0.08] text-obsidian-inkSecondary text-[10px] font-mono">Guide</span>
+                <span className="px-2 py-0.5 rounded bg-obsidian-surface2 border border-obsidian-border text-obsidian-inkSecondary text-[10px] font-mono">Guide</span>
               </div>
               <p className="text-[11px] text-obsidian-inkSecondary">Documentation for autonomous coding and tool orchestration.</p>
             </div>
@@ -66,7 +66,7 @@ export const UserGuideModal: React.FC = () => {
 
           <button
             onClick={() => setGuideOpen(false)}
-            className="p-2 rounded-lg text-obsidian-inkSecondary hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
+            className="p-2 rounded-lg text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors cursor-pointer"
             title="Close Guide"
           >
             <X className="w-4 h-4" />
@@ -76,7 +76,7 @@ export const UserGuideModal: React.FC = () => {
         {/* Modal Body with Sidebar and Content Area */}
         <div className="flex-1 flex overflow-hidden">
           {/* Navigation Sidebar */}
-          <aside className="w-60 bg-[#0e1015] border-r border-white/[0.07] p-3 flex flex-col gap-1 shrink-0 overflow-y-auto">
+          <aside className="w-60 bg-obsidian-surface1 border-r border-obsidian-border p-3 flex flex-col gap-1 shrink-0 overflow-y-auto">
             <div className="px-3 py-1.5 text-[10px] font-mono text-obsidian-inkMuted uppercase tracking-widest">Guide Topics</div>
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -87,8 +87,8 @@ export const UserGuideModal: React.FC = () => {
                   onClick={() => setActiveTab(item.id as any)}
                   className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs font-medium transition-all text-left cursor-pointer ${
                     isActive
-                      ? 'bg-white/[0.1] text-white font-semibold shadow-sm border border-white/[0.08]'
-                      : 'text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-white/[0.04]'
+                      ? 'bg-obsidian-surface3 text-obsidian-inkPrimary font-semibold shadow-sm border border-obsidian-border'
+                      : 'text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface1'
                   }`}
                 >
                   <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-obsidian-inkPrimary' : 'text-obsidian-inkMuted'}`} />
@@ -97,14 +97,14 @@ export const UserGuideModal: React.FC = () => {
               );
             })}
 
-            <div className="mt-auto pt-4 border-t border-white/[0.07] px-3 pb-2 space-y-2">
+            <div className="mt-auto pt-4 border-t border-obsidian-border px-3 pb-2 space-y-2">
               <div className="text-[10px] font-mono text-obsidian-inkMuted">Need direct settings?</div>
               <button
                 onClick={() => {
                   setGuideOpen(false);
                   setSettingsOpen(true);
                 }}
-                className="w-full py-1.5 px-2.5 rounded bg-white/[0.06] hover:bg-white/[0.1] text-obsidian-inkPrimary text-xs font-medium transition-colors flex items-center justify-between"
+                className="w-full py-1.5 px-2.5 rounded bg-obsidian-surface2 hover:bg-obsidian-surface3 text-obsidian-inkPrimary text-xs font-medium transition-colors flex items-center justify-between"
               >
                 <span>API Settings</span>
                 <ArrowRight className="w-3 h-3" />
@@ -113,12 +113,12 @@ export const UserGuideModal: React.FC = () => {
           </aside>
 
           {/* Main Content Area */}
-          <main className="flex-1 p-6 sm:p-8 overflow-y-auto bg-[#0c0d10] text-obsidian-inkPrimary text-xs leading-relaxed space-y-6">
+          <main className="flex-1 p-6 sm:p-8 overflow-y-auto bg-obsidian-canvas text-obsidian-inkPrimary text-xs leading-relaxed space-y-6">
             {/* 1. Quick Start Checklist */}
             {activeTab === 'quickstart' && (
               <div className="space-y-6 animate-in fade-in">
                 <div>
-                  <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-obsidian-inkPrimary mb-1 flex items-center gap-2">
                     <Rocket className="w-5 h-5 text-obsidian-inkSecondary" />
                     Quick Start Onboarding Tour
                   </h3>
@@ -191,9 +191,9 @@ export const UserGuideModal: React.FC = () => {
                       }
                     }
                   ].map((item) => (
-                    <div key={item.step} className="p-4 rounded-xl bg-[#141720] border border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-white/[0.15] transition-all">
+                    <div key={item.step} className="p-4 rounded-xl bg-obsidian-surface1 border border-obsidian-border flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-obsidian-border transition-all">
                       <div className="flex items-start gap-3.5">
-                        <div className="w-7 h-7 rounded-full bg-white/[0.08] border border-white/[0.12] text-obsidian-inkPrimary font-bold font-mono text-xs flex items-center justify-center shrink-0">
+                        <div className="w-7 h-7 rounded-full bg-obsidian-surface2 border border-obsidian-border text-obsidian-inkPrimary font-bold font-mono text-xs flex items-center justify-center shrink-0">
                           {item.step}
                         </div>
                         <div className="space-y-1">
@@ -203,7 +203,7 @@ export const UserGuideModal: React.FC = () => {
                       </div>
                       <button
                         onClick={item.action}
-                        className="self-start sm:self-center px-3.5 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.16] border border-white/[0.1] text-obsidian-inkPrimary text-xs font-medium whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                        className="self-start sm:self-center px-3.5 py-1.5 rounded-lg bg-obsidian-surface2 hover:bg-obsidian-surface4 border border-obsidian-border text-obsidian-inkPrimary text-xs font-medium whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
                       >
                         <span>{item.actionLabel}</span>
                         <ArrowRight className="w-3.5 h-3.5" />
@@ -218,7 +218,7 @@ export const UserGuideModal: React.FC = () => {
             {activeTab === 'models' && (
               <div className="space-y-6 animate-in fade-in">
                 <div>
-                  <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-obsidian-inkPrimary mb-1 flex items-center gap-2">
                     <Cpu className="w-5 h-5 text-obsidian-inkSecondary" />
                     AI Models & Provider Setup
                   </h3>
@@ -278,14 +278,14 @@ export const UserGuideModal: React.FC = () => {
                       tag: '100% Offline'
                     }
                   ].map((prov) => (
-                    <div key={prov.name} className="p-4 rounded-xl bg-[#141720] border border-white/[0.08] flex flex-col justify-between space-y-3">
+                    <div key={prov.name} className="p-4 rounded-xl bg-obsidian-surface1 border border-obsidian-border flex flex-col justify-between space-y-3">
                       <div>
                         <div className="flex items-center justify-between mb-1.5">
                           <h4 className="font-semibold text-obsidian-inkPrimary text-sm">{prov.name}</h4>
-                          <span className="px-2 py-0.5 rounded text-[9px] font-mono bg-white/[0.06] text-obsidian-inkPrimary border border-white/[0.08]">{prov.tag}</span>
+                          <span className="px-2 py-0.5 rounded text-[9px] font-mono bg-obsidian-surface2 text-obsidian-inkPrimary border border-obsidian-border">{prov.tag}</span>
                         </div>
                         <p className="text-obsidian-inkSecondary text-xs leading-relaxed mb-2">{prov.desc}</p>
-                        <div className="font-mono text-[10px] text-obsidian-inkMuted bg-black/40 p-1.5 rounded border border-white/[0.04]">
+                        <div className="font-mono text-[10px] text-obsidian-inkMuted bg-obsidian-surface2 p-1.5 rounded border border-obsidian-hairline">
                           Env var: <span className="text-obsidian-inkPrimary">{prov.env}</span>
                         </div>
                       </div>
@@ -293,7 +293,7 @@ export const UserGuideModal: React.FC = () => {
                         href={prov.link}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 text-xs text-obsidian-inkPrimary hover:text-white font-medium underline underline-offset-4"
+                        className="inline-flex items-center gap-1.5 text-xs text-obsidian-inkPrimary hover:text-obsidian-inkPrimary font-medium underline underline-offset-4"
                       >
                         <span>{prov.linkLabel}</span>
                         <ExternalLink className="w-3 h-3" />
@@ -312,7 +312,7 @@ export const UserGuideModal: React.FC = () => {
                       setGuideOpen(false);
                       setSettingsOpen(true);
                     }}
-                    className="px-3 py-1.5 rounded bg-white text-black font-semibold hover:bg-obsidian-accentHover transition-colors shrink-0 ml-3 cursor-pointer"
+                    className="px-3 py-1.5 rounded bg-obsidian-accent text-obsidian-inkInverse font-semibold hover:bg-obsidian-accentHover transition-colors shrink-0 ml-3 cursor-pointer"
                   >
                     Open Settings Now
                   </button>
@@ -324,7 +324,7 @@ export const UserGuideModal: React.FC = () => {
             {activeTab === 'agent' && (
               <div className="space-y-6 animate-in fade-in">
                 <div>
-                  <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-obsidian-inkPrimary mb-1 flex items-center gap-2">
                     <Bot className="w-5 h-5 text-obsidian-inkSecondary" />
                     Autonomous Agent & Tool Loop
                   </h3>
@@ -334,7 +334,7 @@ export const UserGuideModal: React.FC = () => {
                 </div>
 
                 <div className="space-y-4">
-                  <div className="p-4 rounded-xl bg-[#141720] border border-white/[0.08] space-y-3">
+                  <div className="p-4 rounded-xl bg-obsidian-surface1 border border-obsidian-border space-y-3">
                     <h4 className="font-semibold text-obsidian-inkPrimary text-sm flex items-center gap-2">
                       <Zap className="w-4 h-4 text-obsidian-inkSecondary" />
                       Integrated Tools
@@ -348,7 +348,7 @@ export const UserGuideModal: React.FC = () => {
                         { name: 'search_web & scrape_url', desc: 'Search the web for API documentation, packages, or error fixes.' },
                         { name: 'spawn_subagent', desc: 'Deploy parallel specialist agents (frontend, backend, QA, media).' },
                       ].map((t) => (
-                        <div key={t.name} className="p-2.5 rounded-lg bg-black/30 border border-white/[0.04] space-y-0.5">
+                        <div key={t.name} className="p-2.5 rounded-lg bg-obsidian-surface2 border border-obsidian-hairline space-y-0.5">
                           <code className="text-[11px] font-mono text-obsidian-inkPrimary">{t.name}</code>
                           <p className="text-[11px] text-obsidian-inkSecondary">{t.desc}</p>
                         </div>
@@ -356,16 +356,11 @@ export const UserGuideModal: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-xl bg-[#141720] border border-white/[0.08] space-y-3">
+                  <div className="p-4 rounded-xl bg-obsidian-surface1 border border-obsidian-border space-y-3">
                     <h4 className="font-semibold text-obsidian-inkPrimary text-sm">Interactive Pause, Resume & Real-Time Steering</h4>
-                    <p className="text-obsidian-inkSecondary text-xs leading-relaxed">
-                      Unlike static AI assistants, you never lose progress with SUTRA:
+                    <p className="text-obsidian-inkSecondary text-xs">
+                      Steer Astra live while generation streams, or inject fresh instructions directly into the thought loop.
                     </p>
-                    <ul className="list-disc list-inside text-xs text-obsidian-inkPrimary space-y-1.5 pl-1">
-                      <li><strong className="text-white">Pause at Any Time:</strong> Click <em>Pause</em> in the chat header. All generated code, modified files, and terminal logs remain intact.</li>
-                      <li><strong className="text-white">Steer On the Fly:</strong> Type a new prompt while the agent is running or paused. The agent receives your course correction and seamlessly adjusts its plan.</li>
-                      <li><strong className="text-white">Strict vs Full Access:</strong> Toggle between <strong>Strict</strong> (asks before every change) and <strong>Full Access</strong> (Astra works autonomously).</li>
-                    </ul>
                   </div>
                 </div>
               </div>
@@ -375,7 +370,7 @@ export const UserGuideModal: React.FC = () => {
             {activeTab === 'terminal' && (
               <div className="space-y-6 animate-in fade-in">
                 <div>
-                  <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-obsidian-inkPrimary mb-1 flex items-center gap-2">
                     <TerminalSquare className="w-5 h-5 text-obsidian-inkSecondary" />
                     Built-in Terminal
                   </h3>
@@ -384,7 +379,7 @@ export const UserGuideModal: React.FC = () => {
                   </p>
                 </div>
 
-                <div className="p-4 rounded-xl bg-[#141720] border border-white/[0.08] space-y-4">
+                <div className="p-4 rounded-xl bg-obsidian-surface1 border border-obsidian-border space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="font-semibold text-obsidian-inkPrimary text-sm">Quick Terminal Actions</h4>
@@ -395,14 +390,14 @@ export const UserGuideModal: React.FC = () => {
                         setGuideOpen(false);
                         toggleTerminal();
                       }}
-                      className="px-3.5 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-obsidian-inkPrimary font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                      className="px-3.5 py-1.5 rounded-lg bg-obsidian-surface2 hover:bg-obsidian-surface3 border border-obsidian-border text-obsidian-inkPrimary font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <TerminalSquare className="w-3.5 h-3.5" />
                       <span>Toggle Terminal (Ctrl+`)</span>
                     </button>
                   </div>
 
-                  <div className="p-3 rounded-lg bg-black/40 border border-white/[0.05] font-mono text-[11px] text-obsidian-inkPrimary space-y-1">
+                  <div className="p-3 rounded-lg bg-obsidian-surface2 border border-obsidian-hairline font-mono text-[11px] text-obsidian-inkPrimary space-y-1">
                     <div className="text-obsidian-inkMuted"># Common terminal commands to run:</div>
                     <div className="text-obsidian-inkPrimary">npm run dev</div>
                     <div className="text-obsidian-inkSecondary"># Start the Vite frontend and API server</div>
@@ -417,7 +412,7 @@ export const UserGuideModal: React.FC = () => {
             {activeTab === 'vault' && (
               <div className="space-y-6 animate-in fade-in">
                 <div>
-                  <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-obsidian-inkPrimary mb-1 flex items-center gap-2">
                     <Layers className="w-5 h-5 text-obsidian-inkSecondary" />
                     Godly Design Vault & Live Web Scraper
                   </h3>
@@ -426,7 +421,7 @@ export const UserGuideModal: React.FC = () => {
                   </p>
                 </div>
 
-                <div className="p-4 rounded-xl bg-[#141720] border border-white/[0.08] space-y-4">
+                <div className="p-4 rounded-xl bg-obsidian-surface1 border border-obsidian-border space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="font-semibold text-obsidian-inkPrimary text-sm">Explore Curated UI Patterns</h4>
@@ -437,7 +432,7 @@ export const UserGuideModal: React.FC = () => {
                         setGuideOpen(false);
                         setVaultModalOpen(true);
                       }}
-                      className="px-3.5 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-obsidian-inkPrimary font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                      className="px-3.5 py-1.5 rounded-lg bg-obsidian-surface2 hover:bg-obsidian-surface3 border border-obsidian-border text-obsidian-inkPrimary font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <Layers className="w-3.5 h-3.5" />
                       <span>Open Design Vault</span>
@@ -445,15 +440,15 @@ export const UserGuideModal: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-                    <div className="p-3 rounded-lg bg-black/30 border border-white/[0.05]">
+                    <div className="p-3 rounded-lg bg-obsidian-surface2 border border-obsidian-hairline">
                       <h5 className="font-semibold text-obsidian-inkPrimary text-xs mb-1">1. Browse Patterns</h5>
                       <p className="text-[11px] text-obsidian-inkSecondary">Filtered by Archetype: Landing, Dashboard, Minimal Editorial, Dark Canvas.</p>
                     </div>
-                    <div className="p-3 rounded-lg bg-black/30 border border-white/[0.05]">
+                    <div className="p-3 rounded-lg bg-obsidian-surface2 border border-obsidian-hairline">
                       <h5 className="font-semibold text-obsidian-inkPrimary text-xs mb-1">2. 1-Click Injection</h5>
                       <p className="text-[11px] text-obsidian-inkSecondary">Inject component code directly into <code className="text-obsidian-inkPrimary">src/components/injected/</code>.</p>
                     </div>
-                    <div className="p-3 rounded-lg bg-black/30 border border-white/[0.05]">
+                    <div className="p-3 rounded-lg bg-obsidian-surface2 border border-obsidian-hairline">
                       <h5 className="font-semibold text-obsidian-inkPrimary text-xs mb-1">3. Live Scraper</h5>
                       <p className="text-[11px] text-obsidian-inkSecondary">Search any website or paste a URL to extract and compress its design structure.</p>
                     </div>
@@ -466,7 +461,7 @@ export const UserGuideModal: React.FC = () => {
             {activeTab === 'media' && (
               <div className="space-y-6 animate-in fade-in">
                 <div>
-                  <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-obsidian-inkPrimary mb-1 flex items-center gap-2">
                     <Palette className="w-5 h-5 text-obsidian-inkSecondary" />
                     Multimodal Media & Asset Studio
                   </h3>
@@ -475,7 +470,7 @@ export const UserGuideModal: React.FC = () => {
                   </p>
                 </div>
 
-                <div className="p-4 rounded-xl bg-[#141720] border border-white/[0.08] space-y-4">
+                <div className="p-4 rounded-xl bg-obsidian-surface1 border border-obsidian-border space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="font-semibold text-obsidian-inkPrimary text-sm">Asset Generation Engine</h4>
@@ -486,7 +481,7 @@ export const UserGuideModal: React.FC = () => {
                         setGuideOpen(false);
                         setAssetStudioOpen(true);
                       }}
-                      className="px-3.5 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-obsidian-inkPrimary font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                      className="px-3.5 py-1.5 rounded-lg bg-obsidian-surface2 hover:bg-obsidian-surface3 border border-obsidian-border text-obsidian-inkPrimary font-medium text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <Palette className="w-3.5 h-3.5" />
                       <span>Open Asset Studio</span>
@@ -494,19 +489,19 @@ export const UserGuideModal: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2">
-                    <div className="p-2.5 rounded-lg bg-black/30 border border-white/[0.04] text-center">
+                    <div className="p-2.5 rounded-lg bg-black/30 border border-obsidian-hairline text-center">
                       <div className="font-bold text-obsidian-inkPrimary text-xs">Images</div>
                       <div className="text-[10px] text-obsidian-inkMuted">1920x1080 / Square</div>
                     </div>
-                    <div className="p-2.5 rounded-lg bg-black/30 border border-white/[0.04] text-center">
+                    <div className="p-2.5 rounded-lg bg-black/30 border border-obsidian-hairline text-center">
                       <div className="font-bold text-obsidian-inkPrimary text-xs">Videos</div>
                       <div className="text-[10px] text-obsidian-inkMuted">16:9 / 9:16 Clips</div>
                     </div>
-                    <div className="p-2.5 rounded-lg bg-black/30 border border-white/[0.04] text-center">
+                    <div className="p-2.5 rounded-lg bg-black/30 border border-obsidian-hairline text-center">
                       <div className="font-bold text-obsidian-inkPrimary text-xs">Audio & TTS</div>
                       <div className="text-[10px] text-obsidian-inkMuted">Chimes, Clicks, Voice</div>
                     </div>
-                    <div className="p-2.5 rounded-lg bg-black/30 border border-white/[0.04] text-center">
+                    <div className="p-2.5 rounded-lg bg-black/30 border border-obsidian-hairline text-center">
                       <div className="font-bold text-obsidian-inkPrimary text-xs">Vector SVGs</div>
                       <div className="text-[10px] text-obsidian-inkMuted">Raw Clean SVG Code</div>
                     </div>
@@ -519,7 +514,7 @@ export const UserGuideModal: React.FC = () => {
             {activeTab === 'preview' && (
               <div className="space-y-6 animate-in fade-in">
                 <div>
-                  <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-obsidian-inkPrimary mb-1 flex items-center gap-2">
                     <Smartphone className="w-5 h-5 text-obsidian-inkSecondary" />
                     Multi-Device Preview & Mobile Companion
                   </h3>
@@ -529,7 +524,7 @@ export const UserGuideModal: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-4 rounded-xl bg-[#141720] border border-white/[0.08] space-y-3">
+                  <div className="p-4 rounded-xl bg-obsidian-surface1 border border-obsidian-border space-y-3">
                     <h4 className="font-semibold text-obsidian-inkPrimary text-sm flex items-center gap-2">
                       <Play className="w-4 h-4 text-obsidian-inkSecondary" />
                       Live Sandbox Multi-Viewport
@@ -542,13 +537,13 @@ export const UserGuideModal: React.FC = () => {
                         setGuideOpen(false);
                         togglePreview();
                       }}
-                      className="px-3 py-1.5 rounded bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-obsidian-inkPrimary font-medium text-xs transition-colors cursor-pointer"
+                      className="px-3 py-1.5 rounded bg-obsidian-surface2 hover:bg-obsidian-surface3 border border-obsidian-border text-obsidian-inkPrimary font-medium text-xs transition-colors cursor-pointer"
                     >
                       Toggle Preview Panel
                     </button>
                   </div>
 
-                  <div className="p-4 rounded-xl bg-[#141720] border border-white/[0.08] space-y-3">
+                  <div className="p-4 rounded-xl bg-obsidian-surface1 border border-obsidian-border space-y-3">
                     <h4 className="font-semibold text-obsidian-inkPrimary text-sm flex items-center gap-2">
                       <Wifi className="w-4 h-4 text-obsidian-inkSecondary" />
                       Mobile Companion Bridge
@@ -561,7 +556,7 @@ export const UserGuideModal: React.FC = () => {
                         setGuideOpen(false);
                         setQRPairingOpen(true);
                       }}
-                      className="px-3 py-1.5 rounded bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-obsidian-inkPrimary font-medium text-xs transition-colors cursor-pointer"
+                      className="px-3 py-1.5 rounded bg-obsidian-surface2 hover:bg-obsidian-surface3 border border-obsidian-border text-obsidian-inkPrimary font-medium text-xs transition-colors cursor-pointer"
                     >
                       Show Pairing QR Code
                     </button>
@@ -574,7 +569,7 @@ export const UserGuideModal: React.FC = () => {
             {activeTab === 'shortcuts' && (
               <div className="space-y-6 animate-in fade-in">
                 <div>
-                  <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-obsidian-inkPrimary mb-1 flex items-center gap-2">
                     <Keyboard className="w-5 h-5 text-obsidian-inkSecondary" />
                     Keyboard Shortcuts & Cheatsheet
                   </h3>
@@ -592,9 +587,9 @@ export const UserGuideModal: React.FC = () => {
                     { key: 'Ctrl+Shift+F', desc: 'Open Workspace Code Search' },
                     { key: 'Esc', desc: 'Close any active modal or dialog' },
                   ].map((s) => (
-                    <div key={s.key} className="p-3 rounded-lg bg-[#141720] border border-white/[0.08] flex items-center justify-between">
+                    <div key={s.key} className="p-3 rounded-lg bg-obsidian-surface1 border border-obsidian-border flex items-center justify-between">
                       <span className="text-obsidian-inkPrimary text-xs">{s.desc}</span>
-                      <kbd className="px-2 py-1 rounded bg-black/50 border border-white/[0.12] text-[10px] font-mono text-obsidian-inkPrimary shadow-sm shrink-0 ml-2">
+                      <kbd className="px-2 py-1 rounded bg-obsidian-surface2 border border-obsidian-border text-[10px] font-mono text-obsidian-inkPrimary shadow-sm shrink-0 ml-2">
                         {s.key}
                       </kbd>
                     </div>

@@ -9,7 +9,6 @@ import { WSChannel, createPacket } from './wsProtocol.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PAIRING_TOKEN_TTL_MS = 5 * 60 * 1000;
-const FALLBACK_LAN_IP = '192.168.1.10';
 
 export interface MobileClientState {
   id: string;
@@ -37,25 +36,50 @@ export class MobileBridge {
   }
 
   public getLanIp(): string {
-    return this.detectLanIp() || FALLBACK_LAN_IP;
+    return this.detectLanIp() || '127.0.0.1';
   }
 
   /**
-   * Best-effort RFC1918 address detection. Returns null when no Wi-Fi/Ethernet
-   * IPv4 interface is found so callers can warn instead of silently advertising
-   * a made-up address the phone can never reach.
+   * Dynamic RFC1918 and active network interface detection across all devices.
    */
   private detectLanIp(): string | null {
-    const interfaces = os.networkInterfaces();
-    // Prioritize Wi-Fi and Ethernet interfaces
-    for (const name of ['Wi-Fi', 'Ethernet', ...Object.keys(interfaces)]) {
-      for (const iface of interfaces[name] || []) {
-        if (iface.family === 'IPv4' && !iface.internal && !name.includes('vEthernet') && !name.includes('Loopback')) {
-          if (iface.address.startsWith('192.168.') || iface.address.startsWith('10.') || iface.address.startsWith('172.')) {
+    try {
+      const interfaces = os.networkInterfaces();
+      const isVirtual = (n: string) => /vEthernet|VirtualBox|vbox|VMware|WSL|docker|tailscale|loopback/i.test(n);
+
+      // Pass 1: Wi-Fi / Ethernet on 192.168.x or 10.x (most common home/office LANs)
+      for (const name of ['Wi-Fi', 'Ethernet', 'wlan0', 'eth0', 'en0', ...Object.keys(interfaces)]) {
+        if (isVirtual(name)) continue;
+        for (const iface of interfaces[name] || []) {
+          if (iface.family === 'IPv4' && !iface.internal) {
+            if (iface.address.startsWith('192.168.') || iface.address.startsWith('10.')) {
+              return iface.address;
+            }
+          }
+        }
+      }
+
+      // Pass 2: 172.16-172.31 range on non-virtual adapters
+      for (const name of Object.keys(interfaces)) {
+        if (isVirtual(name)) continue;
+        for (const iface of interfaces[name] || []) {
+          if (iface.family === 'IPv4' && !iface.internal && iface.address.startsWith('172.')) {
             return iface.address;
           }
         }
       }
+
+      // Pass 3: Any non-internal IPv4 on non-virtual interface
+      for (const name of Object.keys(interfaces)) {
+        if (isVirtual(name)) continue;
+        for (const iface of interfaces[name] || []) {
+          if (iface.family === 'IPv4' && !iface.internal) {
+            return iface.address;
+          }
+        }
+      }
+    } catch {
+      // Ignore network enumeration error
     }
     return null;
   }
@@ -77,11 +101,9 @@ export class MobileBridge {
   }
 
   /**
-   * Generates ephemeral pairing token and high-res QR code.
-   * `warning` is set when no real LAN address could be detected — the QR may
-   * not be reachable from another device and the UI should say so plainly.
+   * Generates ephemeral pairing token and high-res QR code dynamically for the active device.
    */
-  public async generatePairingQr(_origin?: string): Promise<{
+  public async generatePairingQr(origin?: string): Promise<{
     qrDataUrl: string;
     qrCodeDataUrl?: string;
     pairUrl: string;
@@ -91,16 +113,32 @@ export class MobileBridge {
     expiresInSeconds: number;
     warning?: string;
   }> {
+    let hostFromOrigin = '';
+    if (origin) {
+      try {
+        const u = new URL(origin);
+        if (u.hostname && u.hostname !== 'localhost' && u.hostname !== '127.0.0.1') {
+          hostFromOrigin = u.hostname;
+        }
+      } catch {
+        // Raw host header
+        const clean = origin.replace(/^https?:\/\//, '').split(':')[0];
+        if (clean && clean !== 'localhost' && clean !== '127.0.0.1') {
+          hostFromOrigin = clean;
+        }
+      }
+    }
+
     const detectedIp = this.detectLanIp();
-    const lanIp = detectedIp || FALLBACK_LAN_IP;
+    const lanIp = hostFromOrigin || detectedIp || '127.0.0.1';
     const token = crypto.randomBytes(16).toString('hex');
     this.activeTokens.set(token, { token, createdAt: Date.now() });
 
     // Auto clean expired tokens after 5 mins
     setTimeout(() => this.activeTokens.delete(token), PAIRING_TOKEN_TTL_MS);
 
-    // CRITICAL: Always use actual LAN IP (e.g. http://192.168.1.10:3001) for mobile pairing so phone connects to host machine on Wi-Fi
-    const targetBase = `http://${lanIp}:${this.resolveClientPort()}`;
+    const targetPort = this.resolveClientPort();
+    const targetBase = `http://${lanIp}:${targetPort}`;
     const pairUrl = `${targetBase}/mobile?token=${token}&host=${lanIp}:${this.port}`;
 
     const qrDataUrl = await QRCode.toDataURL(pairUrl, {

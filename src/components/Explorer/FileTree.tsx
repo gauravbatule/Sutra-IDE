@@ -2,6 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { 
   Folder, 
   FolderOpen, 
+  FolderCode,
+  FolderGit2,
+  FolderArchive,
+  FolderTree,
+  FolderSync,
   FileCode, 
   FileText, 
   Image as ImageIcon, 
@@ -16,7 +21,17 @@ import {
   FileType,
   Trash2,
   Copy,
-  Check
+  Check,
+  Database,
+  Settings,
+  GitBranch,
+  Wind,
+  Package,
+  Layers,
+  ShieldCheck,
+  Braces,
+  Zap,
+  BookOpen,
 } from 'lucide-react';
 import { useIDEStore } from '../../stores/ideStore.js';
 
@@ -29,32 +44,95 @@ export interface FileNode {
 }
 
 const getFileIcon = (file: FileNode, isExpanded: boolean) => {
+  const name = file.name.toLowerCase();
+
   if (file.isDir) {
+    if (name === '.git' || name === '.github') {
+      return <FolderGit2 className="w-3.5 h-3.5 text-obsidian-inkSecondary shrink-0" />;
+    }
+    if (name === 'src' || name === 'app' || name === 'pages' || name === 'components' || name === 'server') {
+      return <FolderCode className="w-3.5 h-3.5 text-obsidian-inkPrimary shrink-0" />;
+    }
+    if (name === 'public' || name === 'assets' || name === 'static') {
+      return <FolderArchive className="w-3.5 h-3.5 text-obsidian-inkSecondary shrink-0" />;
+    }
+    if (name === 'node_modules') {
+      return <FolderTree className="w-3.5 h-3.5 text-obsidian-inkMuted opacity-70 shrink-0" />;
+    }
+    if (name === '.next' || name === '.sutra' || name === 'dist' || name === 'build') {
+      return <FolderSync className="w-3.5 h-3.5 text-obsidian-inkMuted shrink-0" />;
+    }
+    if (name === 'prisma' || name === 'db' || name === 'database') {
+      return <Database className="w-3.5 h-3.5 text-obsidian-inkSecondary shrink-0" />;
+    }
     return isExpanded ? (
-      <FolderOpen className="w-3.5 h-3.5 text-obsidian-inkSecondary" />
+      <FolderOpen className="w-3.5 h-3.5 text-obsidian-inkSecondary group-hover:text-obsidian-inkPrimary transition-colors shrink-0" />
     ) : (
-      <Folder className="w-3.5 h-3.5 text-obsidian-inkSecondary" />
+      <Folder className="w-3.5 h-3.5 text-obsidian-inkMuted group-hover:text-obsidian-inkSecondary transition-colors shrink-0" />
     );
   }
-  if (file.name.endsWith('.tsx') || file.name.endsWith('.jsx')) {
-    return <Code2 className="w-3.5 h-3.5 text-obsidian-inkPrimary" />;
+
+  // Specific file names
+  if (name.startsWith('.env')) {
+    return <Settings className="w-3.5 h-3.5 text-obsidian-inkMuted shrink-0" />;
   }
-  if (file.name.endsWith('.ts') || file.name.endsWith('.js')) {
-    return <FileCode className="w-3.5 h-3.5 text-obsidian-inkPrimary" />;
+  if (name === '.gitignore' || name === '.gitattributes') {
+    return <GitBranch className="w-3.5 h-3.5 text-obsidian-inkSecondary shrink-0" />;
   }
-  if (file.name.endsWith('.json')) {
-    return <FileJson className="w-3.5 h-3.5 text-obsidian-inkSecondary" />;
+  if (name === 'package.json' || name === 'package-lock.json') {
+    return <Package className="w-3.5 h-3.5 text-obsidian-inkSecondary shrink-0" />;
   }
-  if (file.name.endsWith('.png') || file.name.endsWith('.svg') || file.name.endsWith('.jpg') || file.name.endsWith('.ico') || file.name.endsWith('.webp')) {
-    return <ImageIcon className="w-3.5 h-3.5 text-obsidian-inkPrimary" />;
+  if (name.startsWith('tsconfig') || name === 'jsconfig.json') {
+    return <FileJson className="w-3.5 h-3.5 text-obsidian-inkSecondary shrink-0" />;
   }
-  if (file.name.endsWith('.md')) {
-    return <FileText className="w-3.5 h-3.5 text-obsidian-inkSecondary" />;
+  if (name.startsWith('tailwind.config')) {
+    return <Wind className="w-3.5 h-3.5 text-obsidian-inkSecondary shrink-0" />;
   }
-  if (file.name.endsWith('.css') || file.name.endsWith('.scss')) {
-    return <FileType className="w-3.5 h-3.5 text-obsidian-inkSecondary" />;
+  if (name.startsWith('eslint.config') || name.startsWith('.eslintrc') || name.startsWith('prettier')) {
+    return <ShieldCheck className="w-3.5 h-3.5 text-obsidian-inkSecondary shrink-0" />;
   }
-  return <FileCode className="w-3.5 h-3.5 text-obsidian-inkMuted" />;
+  if (name.startsWith('next.config') || name.startsWith('vite.config')) {
+    return <Zap className="w-3.5 h-3.5 text-obsidian-inkPrimary shrink-0" />;
+  }
+  if (name.startsWith('postcss.config')) {
+    return <Layers className="w-3.5 h-3.5 text-obsidian-inkSecondary shrink-0" />;
+  }
+  if (name === 'readme.md') {
+    return <BookOpen className="w-3.5 h-3.5 text-obsidian-inkPrimary shrink-0" />;
+  }
+  if (name.endsWith('.db') || name.endsWith('.sqlite') || name.endsWith('.sql')) {
+    return <Database className="w-3.5 h-3.5 text-obsidian-inkSecondary shrink-0" />;
+  }
+
+  // Extensions
+  if (name.endsWith('.tsx') || name.endsWith('.jsx')) {
+    return <Code2 className="w-3.5 h-3.5 text-obsidian-inkPrimary shrink-0" />;
+  }
+  if (name.endsWith('.ts') || name.endsWith('.js') || name.endsWith('.mjs') || name.endsWith('.cjs')) {
+    return <FileCode className="w-3.5 h-3.5 text-obsidian-inkPrimary shrink-0" />;
+  }
+  if (name.endsWith('.json')) {
+    return <Braces className="w-3.5 h-3.5 text-obsidian-inkSecondary shrink-0" />;
+  }
+  if (name.endsWith('.yaml') || name.endsWith('.yml') || name.endsWith('.toml')) {
+    return <FileJson className="w-3.5 h-3.5 text-obsidian-inkSecondary shrink-0" />;
+  }
+  if (name.endsWith('.png') || name.endsWith('.svg') || name.endsWith('.jpg') || name.endsWith('.ico') || name.endsWith('.webp')) {
+    return <ImageIcon className="w-3.5 h-3.5 text-obsidian-inkMuted shrink-0" />;
+  }
+  if (name.endsWith('.md') || name.endsWith('.mdx')) {
+    return <FileText className="w-3.5 h-3.5 text-obsidian-inkSecondary shrink-0" />;
+  }
+  if (name.endsWith('.txt') || name.endsWith('.log')) {
+    return <FileText className="w-3.5 h-3.5 text-obsidian-inkMuted shrink-0" />;
+  }
+  if (name.endsWith('.css') || name.endsWith('.scss') || name.endsWith('.less')) {
+    return <FileType className="w-3.5 h-3.5 text-obsidian-inkSecondary shrink-0" />;
+  }
+  if (name.endsWith('.py') || name.endsWith('.rs')) {
+    return <FileCode className="w-3.5 h-3.5 text-obsidian-inkPrimary shrink-0" />;
+  }
+  return <FileCode className="w-3.5 h-3.5 text-obsidian-inkMuted shrink-0" />;
 };
 
 interface FileTreeNodeItemProps {
@@ -67,9 +145,10 @@ interface FileTreeNodeItemProps {
   copiedPath: string | null;
   onCopyPath: (path: string) => void;
   searchFilter: string;
+  onContextMenu: (e: React.MouseEvent, node: FileNode) => void;
 }
 
-const FileTreeNodeItem: React.FC<FileTreeNodeItemProps> = ({
+const FileTreeNodeItem: React.FC<FileTreeNodeItemProps> = React.memo(({
   node,
   depth,
   expandedFolders,
@@ -79,6 +158,7 @@ const FileTreeNodeItem: React.FC<FileTreeNodeItemProps> = ({
   copiedPath,
   onCopyPath,
   searchFilter,
+  onContextMenu,
 }) => {
   const isExpanded = Boolean(expandedFolders[node.path]);
   const isMatch = !searchFilter.trim() || node.name.toLowerCase().includes(searchFilter.toLowerCase()) || node.path.toLowerCase().includes(searchFilter.toLowerCase());
@@ -106,7 +186,8 @@ const FileTreeNodeItem: React.FC<FileTreeNodeItemProps> = ({
             onFileClick(node);
           }
         }}
-        className="flex items-center justify-between px-2 py-1 cursor-pointer text-obsidian-inkPrimary hover:text-white hover:bg-white/[0.05] transition-colors group select-none rounded-sm"
+        onContextMenu={(e) => onContextMenu(e, node)}
+        className="flex items-center justify-between px-2 py-1 cursor-pointer text-obsidian-inkPrimary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface1 transition-colors group select-none rounded-sm"
         style={{ paddingLeft: `${depth * 14 + 8}px` }}
       >
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
@@ -117,7 +198,7 @@ const FileTreeNodeItem: React.FC<FileTreeNodeItemProps> = ({
           ) : (
             <span className="w-3 shrink-0" />
           )}
-          <div className="opacity-80 group-hover:opacity-100 transition-opacity shrink-0">
+          <div className="shrink-0">
             {getFileIcon(node, isExpanded)}
           </div>
           <span className="truncate text-[11px] font-mono">{node.name}</span>
@@ -162,16 +243,17 @@ const FileTreeNodeItem: React.FC<FileTreeNodeItemProps> = ({
               copiedPath={copiedPath}
               onCopyPath={onCopyPath}
               searchFilter={searchFilter}
+              onContextMenu={onContextMenu}
             />
           ))}
         </div>
       )}
     </div>
   );
-};
+});
 
 export const FileTree: React.FC = () => {
-  const { openFile } = useIDEStore();
+  const { openFile, closeTab, setFolderPickerOpen, currentWorkspacePath } = useIDEStore();
   const [files, setFiles] = useState<FileNode[]>([]);
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
@@ -185,6 +267,7 @@ export const FileTree: React.FC = () => {
   const [isCreatingFile, setIsCreatingFile] = useState(false);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newPathName, setNewPathName] = useState('');
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: FileNode } | null>(null);
 
   const fetchTree = async () => {
     setIsLoading(true);
@@ -201,9 +284,11 @@ export const FileTree: React.FC = () => {
     }
   };
 
+  const fileTreeVersion = useIDEStore((s) => s.fileTreeVersion);
+
   useEffect(() => {
     fetchTree();
-  }, []);
+  }, [fileTreeVersion]);
 
   const toggleFolder = (folderPath: string) => {
     setExpandedFolders((prev) => ({
@@ -242,10 +327,17 @@ export const FileTree: React.FC = () => {
           body: JSON.stringify({ path: cleanPath }),
         });
       } else {
+        const initialContent = '// Created in SUTRA IDE\n';
         await fetch('/api/fs/write', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: cleanPath, content: '// Created in SUTRA IDE\n' }),
+          body: JSON.stringify({ path: cleanPath, content: initialContent }),
+        });
+        const fileName = cleanPath.split(/[/\\]/).pop() || cleanPath;
+        openFile({
+          path: cleanPath,
+          name: fileName,
+          content: initialContent,
         });
       }
       setNewPathName('');
@@ -266,6 +358,7 @@ export const FileTree: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: filePath }),
       });
+      closeTab(filePath);
       fetchTree();
     } catch (err) {
       console.error(err);
@@ -278,15 +371,41 @@ export const FileTree: React.FC = () => {
     setTimeout(() => setCopiedPath(null), 1500);
   };
 
+  const handleContextMenu = (e: React.MouseEvent, node: FileNode) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, node });
+  };
+
   return (
-    <div className="flex-1 flex flex-col h-full bg-obsidian-surface1 border-r border-obsidian-hairline select-none overflow-hidden font-sans">
-      {/* Explorer Header */}
+    <div 
+      className="flex-1 flex flex-col h-full bg-obsidian-surface1 border-r border-obsidian-hairline select-none overflow-hidden font-sans relative"
+      onClick={() => setContextMenu(null)}
+    >
+      {/* Header with Title & Action Icons */}
       <div className="p-3 border-b border-obsidian-hairline flex items-center justify-between">
-        <span className="text-[10px] font-bold text-obsidian-inkPrimary uppercase tracking-widest font-mono">Explorer</span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-[10px] font-bold text-obsidian-inkPrimary uppercase tracking-widest font-mono">
+            Explorer
+          </span>
+          {currentWorkspacePath && (
+            <span className="text-[10px] font-mono text-obsidian-inkMuted truncate max-w-[100px]">
+              {currentWorkspacePath.split(/[/\\]/).pop()}
+            </span>
+          )}
+        </div>
+
         <div className="flex items-center gap-1">
           <button
+            onClick={() => setFolderPickerOpen(true)}
+            className="p-1 rounded hover:bg-obsidian-surface2 text-obsidian-inkSecondary hover:text-obsidian-inkPrimary transition-colors cursor-pointer"
+            title="Open Folder from Storage / Switch Workspace"
+          >
+            <FolderTree className="w-3.5 h-3.5" />
+          </button>
+          <button
             onClick={() => {
-              setIsCreatingFile(!isCreatingFile);
+              setIsCreatingFile(true);
               setIsCreatingFolder(false);
             }}
             className="p-1 rounded hover:bg-obsidian-surface2 text-obsidian-inkSecondary hover:text-obsidian-inkPrimary transition-colors cursor-pointer"
@@ -296,7 +415,7 @@ export const FileTree: React.FC = () => {
           </button>
           <button
             onClick={() => {
-              setIsCreatingFolder(!isCreatingFolder);
+              setIsCreatingFolder(true);
               setIsCreatingFile(false);
             }}
             className="p-1 rounded hover:bg-obsidian-surface2 text-obsidian-inkSecondary hover:text-obsidian-inkPrimary transition-colors cursor-pointer"
@@ -307,7 +426,7 @@ export const FileTree: React.FC = () => {
           <button
             onClick={fetchTree}
             className="p-1 rounded hover:bg-obsidian-surface2 text-obsidian-inkSecondary hover:text-obsidian-inkPrimary transition-colors cursor-pointer"
-            title="Refresh File Tree"
+            title="Refresh Files"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
           </button>
@@ -315,7 +434,7 @@ export const FileTree: React.FC = () => {
       </div>
 
       {/* Filter Bar */}
-      <div className="px-2 py-1.5 border-b border-obsidian-hairline bg-obsidian-surface1">
+      <div className="p-2 border-b border-obsidian-hairline bg-obsidian-surface1">
         <div className="relative">
           <Search className="w-3 h-3 text-obsidian-inkMuted absolute left-2 top-1/2 -translate-y-1/2" />
           <input
@@ -328,53 +447,140 @@ export const FileTree: React.FC = () => {
         </div>
       </div>
 
-      {/* New File / Folder Input */}
+      {/* Create New File/Folder Input */}
       {(isCreatingFile || isCreatingFolder) && (
-        <div className="p-2 border-b border-obsidian-hairline bg-obsidian-surface2">
-          <div className="text-[10px] font-mono text-obsidian-inkMuted mb-1">
-            {isCreatingFile ? 'Create New File:' : 'Create New Folder:'}
+        <div className="p-2 border-b border-obsidian-hairline bg-obsidian-surface2 animate-in fade-in">
+          <div className="text-[10px] font-mono text-obsidian-inkSecondary mb-1">
+            {isCreatingFile ? 'Create New File' : 'Create New Folder'} (e.g. src/utils/helpers.ts)
           </div>
-          <input
-            type="text"
-            value={newPathName}
-            onChange={(e) => setNewPathName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleCreateNew(isCreatingFolder);
-              if (e.key === 'Escape') {
-                setIsCreatingFile(false);
-                setIsCreatingFolder(false);
-              }
-            }}
-            placeholder={isCreatingFile ? 'src/components/MyView.tsx' : 'src/components/widgets'}
-            autoFocus
-            className="w-full bg-obsidian-canvas border border-obsidian-hairline rounded p-1 text-xs text-obsidian-inkPrimary font-mono focus:outline-none"
-          />
+          <div className="flex items-center gap-1">
+            <input
+              type="text"
+              value={newPathName}
+              onChange={(e) => setNewPathName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleCreateNew(isCreatingFolder);
+                if (e.key === 'Escape') {
+                  setIsCreatingFile(false);
+                  setIsCreatingFolder(false);
+                  setNewPathName('');
+                }
+              }}
+              placeholder={isCreatingFile ? 'path/to/file.ts' : 'path/to/folder'}
+              autoFocus
+              className="flex-1 bg-obsidian-surface3 border border-obsidian-border rounded px-2 py-1 text-xs text-obsidian-inkPrimary font-mono focus:outline-none focus:border-obsidian-hairline"
+            />
+            <button
+              onClick={() => handleCreateNew(isCreatingFolder)}
+              className="px-2 py-1 rounded bg-obsidian-inkPrimary text-obsidian-canvas font-mono text-xs font-semibold cursor-pointer"
+            >
+              OK
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Recursive File Tree View */}
-      <div className="flex-1 overflow-y-auto p-1.5 space-y-0 text-[11px] font-mono">
-        {files.length === 0 ? (
-          <div className="p-4 text-center text-obsidian-inkMuted text-xs font-mono">
-            {isLoading ? 'Scanning workspace...' : 'Workspace is empty'}
+      {/* Tree Node List */}
+      <div className="flex-1 overflow-y-auto p-1 space-y-0.5 font-mono text-xs">
+        {files.map((node) => (
+          <FileTreeNodeItem
+            key={node.path}
+            node={node}
+            depth={0}
+            expandedFolders={expandedFolders}
+            onToggleFolder={toggleFolder}
+            onFileClick={handleFileClick}
+            onDelete={handleDelete}
+            copiedPath={copiedPath}
+            onCopyPath={handleCopyPath}
+            searchFilter={searchFilter}
+            onContextMenu={handleContextMenu}
+          />
+        ))}
+
+        {files.length === 0 && !isLoading && (
+          <div className="p-6 text-center text-obsidian-inkMuted space-y-2">
+            <p className="text-xs">No files in current workspace.</p>
+            <button
+              onClick={() => setFolderPickerOpen(true)}
+              className="px-3 py-1.5 rounded-lg border border-obsidian-border text-[11px] font-mono hover:bg-obsidian-surface1 text-obsidian-inkPrimary transition-colors cursor-pointer"
+            >
+              Open Workspace Folder
+            </button>
           </div>
-        ) : (
-          files.map((rootNode) => (
-            <FileTreeNodeItem
-              key={rootNode.path}
-              node={rootNode}
-              depth={0}
-              expandedFolders={expandedFolders}
-              onToggleFolder={toggleFolder}
-              onFileClick={handleFileClick}
-              onDelete={handleDelete}
-              copiedPath={copiedPath}
-              onCopyPath={handleCopyPath}
-              searchFilter={searchFilter}
-            />
-          ))
         )}
       </div>
+
+      {/* Right Click Context Menu */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 bg-obsidian-surface2 border border-obsidian-border rounded-xl shadow-2xl p-1 w-48 font-mono text-xs animate-in fade-in"
+          style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {!contextMenu.node.isDir ? (
+            <button
+              onClick={() => {
+                handleFileClick(contextMenu.node);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-2.5 py-1.5 rounded hover:bg-obsidian-surface3 text-obsidian-inkPrimary transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <FileCode className="w-3.5 h-3.5 text-sky-400" />
+              <span>Open File</span>
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => {
+                  setIsCreatingFile(true);
+                  setNewPathName(`${contextMenu.node.path}/`);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-2.5 py-1.5 rounded hover:bg-obsidian-surface3 text-obsidian-inkPrimary transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <FilePlus className="w-3.5 h-3.5 text-obsidian-inkSecondary" />
+                <span>New File Here</span>
+              </button>
+              <button
+                onClick={() => {
+                  setIsCreatingFolder(true);
+                  setNewPathName(`${contextMenu.node.path}/`);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-2.5 py-1.5 rounded hover:bg-obsidian-surface3 text-obsidian-inkPrimary transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <FolderPlus className="w-3.5 h-3.5 text-obsidian-inkSecondary" />
+                <span>New Folder Here</span>
+              </button>
+            </>
+          )}
+
+          <div className="h-px bg-obsidian-surface3 my-1" />
+
+          <button
+            onClick={() => {
+              handleCopyPath(contextMenu.node.path);
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-2.5 py-1.5 rounded hover:bg-obsidian-surface3 text-obsidian-inkPrimary transition-colors flex items-center gap-1.5 cursor-pointer"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            <span>Copy Path</span>
+          </button>
+
+          <button
+            onClick={(e) => {
+              handleDelete(e, contextMenu.node.path);
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-2.5 py-1.5 rounded hover:bg-obsidian-surface3 text-obsidian-danger transition-colors flex items-center gap-1.5 cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Delete</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

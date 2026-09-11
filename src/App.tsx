@@ -4,28 +4,53 @@ import { ManagerShell } from './components/Manager/ManagerShell.js';
 import { MobileApp } from './mobile/MobileApp.js';
 import { StartingScene } from './components/Splash/StartingScene.js';
 import { SetupGate } from './components/Onboarding/SetupGate.js';
+import { ErrorBoundary } from './components/Common/ErrorBoundary.js';
+import { SutraPetCompanion } from './components/Common/SutraPetCompanion.js';
 import { modelCatalogSignature, useIDEStore } from './stores/ideStore.js';
-import type { OmniModel } from './types/ide.js';
+import type { SutraModel } from './types/ide.js';
 import { useAuthStore } from './stores/authStore.js';
 
 type SetupStatus = 'loading' | 'needed' | 'ok';
 
 export const App: React.FC = () => {
   const [isMobileMode, setIsMobileMode] = useState(false);
-  const [showSplash, setShowSplash] = useState(true);
+  const [showSplash, setShowSplash] = useState(() => {
+    try {
+      return !sessionStorage.getItem('sutra_splash_shown');
+    } catch {
+      return false;
+    }
+  });
   const [setupStatus, setSetupStatus] = useState<SetupStatus>('loading');
   // "Skip for now" on the setup gate persists until a credential is actually added.
   const [setupSkipped, setSetupSkipped] = useState(
     () => localStorage.getItem('sutra_setup_skipped') === '1'
   );
-  const { setAvailableModels, uiMode, isSettingsOpen } = useIDEStore();
+  const { setAvailableModels, setActiveModel, uiMode, isSettingsOpen, fetchCurrentWorkspace } = useIDEStore();
 
   useEffect(() => {
+    fetchCurrentWorkspace();
+  }, [fetchCurrentWorkspace]);
+
+  useEffect(() => {
+    // If embedded inside an iframe (like the Live Preview panel), never render mobile companion mode
+    if (window.self !== window.top) {
+      setIsMobileMode(false);
+      return;
+    }
+
     const isMobileUrl =
       window.location.pathname.startsWith('/mobile') ||
       window.location.search.includes('client=mobile');
-    const isMobileDevice = window.innerWidth <= 768;
-    setIsMobileMode(isMobileUrl || isMobileDevice);
+
+    const updateMobileState = () => {
+      const isMobileDevice = window.innerWidth <= 768;
+      setIsMobileMode(isMobileUrl || isMobileDevice);
+    };
+
+    updateMobileState();
+    window.addEventListener('resize', updateMobileState);
+    return () => window.removeEventListener('resize', updateMobileState);
   }, []);
 
   // Setup gate: require at least one provider credential before unlocking the IDE.
@@ -68,11 +93,14 @@ export const App: React.FC = () => {
         const response = await fetch('/api/models');
         const data = await response.json();
         if (Array.isArray(data.models) && data.models.length > 0) {
-          const signature = modelCatalogSignature(data.models as OmniModel[]);
+          const signature = modelCatalogSignature(data.models as SutraModel[]);
           if (signature !== lastCatalogSignature.current) {
             lastCatalogSignature.current = signature;
             setAvailableModels(data.models);
           }
+        }
+        if (data.activeModel && (!localStorage.getItem('sutra-active-model') || useIDEStore.getState().activeModel?.id === 'auto') && data.activeModel.id !== 'auto') {
+          setActiveModel(data.activeModel);
         }
       } catch {
         // Continue gracefully
@@ -80,13 +108,22 @@ export const App: React.FC = () => {
     };
 
     fetchCatalog();
-    // Poll for model updates, but pause while the tab is hidden to save battery/network
+    // Refresh models on tab visibility change or every 60s fallback
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchCatalog();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible') {
         fetchCatalog();
       }
-    }, 8000);
-    return () => clearInterval(timer);
+    }, 60000);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      clearInterval(timer);
+    };
   }, [setAvailableModels]);
 
   const { token, isInitialized, setInitialized, setUser, setWorkspaces, logout } = useAuthStore();
@@ -129,9 +166,18 @@ export const App: React.FC = () => {
     <>
       {/* Suppress splash while the setup gate is up so it never peeks through */}
       {showSplash && setupStatus !== 'needed' && (
-        <StartingScene onComplete={() => setShowSplash(false)} />
+        <StartingScene onComplete={() => {
+          try { sessionStorage.setItem('sutra_splash_shown', '1'); } catch {}
+          setShowSplash(false);
+        }} />
       )}
-      {uiMode === 'manager' ? <ManagerShell /> : <AppShell />}
+      {/* Keyed wrapper so a Manager <-> IDE switch remounts and fades the new
+          shell in instead of snapping (180ms ease-out, reduced-motion safe). */}
+      <ErrorBoundary fallbackTitle="Workspace UI Encountered an Issue">
+        <div key={uiMode} className="h-screen w-screen anim-fade-in overflow-hidden">
+          {uiMode === 'manager' ? <ManagerShell /> : <AppShell />}
+        </div>
+      </ErrorBoundary>
       {setupStatus === 'needed' && !setupSkipped && (
         <SetupGate
           onRefresh={fetchSetupStatus}
@@ -141,6 +187,8 @@ export const App: React.FC = () => {
           }}
         />
       )}
+      {/* Persistent global floating companion across Manager and IDE views */}
+      <SutraPetCompanion forceFloating={true} />
     </>
   );
 };

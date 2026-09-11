@@ -155,7 +155,7 @@ export const TaskManagerPanel: React.FC = () => {
               type="button"
               onClick={() => setExpandedId(expandedId === task.id ? null : task.id)}
               aria-expanded={expandedId === task.id}
-              className="p-0.5 rounded text-obsidian-inkMuted hover:text-obsidian-inkPrimary transition-colors cursor-pointer"
+              className="w-7 h-7 rounded text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors cursor-pointer flex items-center justify-center"
               aria-label={expandedId === task.id ? 'Collapse task' : 'Expand task'}
             >
               {expandedId === task.id ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
@@ -175,7 +175,7 @@ export const TaskManagerPanel: React.FC = () => {
               disabled={busyId === task.id}
               title="Run now"
               aria-label="Run now"
-              className="p-1.5 rounded-lg text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-white/[0.08] transition-colors cursor-pointer disabled:opacity-50"
+              className="p-1.5 rounded-lg text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors cursor-pointer disabled:opacity-50"
             >
               <Zap className="w-3.5 h-3.5" />
             </button>
@@ -187,8 +187,8 @@ export const TaskManagerPanel: React.FC = () => {
               aria-label={task.enabled ? 'Pause task' : 'Resume task'}
               className={`p-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-50 ${
                 task.enabled
-                  ? 'text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-white/[0.08]'
-                  : 'text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-white/[0.08]'
+                  ? 'text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2'
+                  : 'text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2'
               }`}
             >
               {task.enabled ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
@@ -230,7 +230,7 @@ export const TaskManagerPanel: React.FC = () => {
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Task name (optional)"
             aria-label="Task name"
-            className="w-full px-2.5 py-1.5 rounded-lg bg-transparent border border-white/10 focus:border-white/25 text-xs text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none transition-colors"
+            className="w-full px-2.5 py-1.5 rounded-lg bg-transparent border border-obsidian-border focus:border-obsidian-borderBright text-xs text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none transition-colors"
           />
           <textarea
             value={prompt}
@@ -238,7 +238,7 @@ export const TaskManagerPanel: React.FC = () => {
             placeholder={'What should Astra do? e.g. "Run the test suite and fix any failures"'}
             aria-label="Task prompt"
             rows={3}
-            className="w-full px-2.5 py-1.5 rounded-lg bg-transparent border border-white/10 focus:border-white/25 text-xs text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none transition-colors resize-none"
+            className="w-full px-2.5 py-1.5 rounded-lg bg-transparent border border-obsidian-border focus:border-obsidian-borderBright text-xs text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none transition-colors resize-none"
           />
           <div className="flex items-center gap-1.5">
             {(['once', 'hourly', 'daily', 'weekly'] as const).map((option) => (
@@ -248,8 +248,8 @@ export const TaskManagerPanel: React.FC = () => {
                 onClick={() => setSchedule(option)}
                 className={`px-2 py-1 rounded-full text-[10px] font-mono transition-colors cursor-pointer ${
                   schedule === option
-                    ? 'bg-white text-black font-semibold'
-                    : 'bg-white/[0.05] text-obsidian-inkSecondary hover:text-obsidian-inkPrimary'
+                    ? 'bg-obsidian-accent text-obsidian-inkInverse font-semibold'
+                    : 'bg-obsidian-surface1 text-obsidian-inkSecondary hover:text-obsidian-inkPrimary'
                 }`}
               >
                 {SCHEDULE_LABELS[option]}
@@ -262,7 +262,7 @@ export const TaskManagerPanel: React.FC = () => {
               value={runAt}
               onChange={(e) => setRunAt(e.target.value)}
               aria-label="Run at"
-              className="w-full px-2.5 py-1.5 rounded-lg bg-transparent border border-white/10 focus:border-white/25 text-xs text-obsidian-inkPrimary focus:outline-none transition-colors [color-scheme:dark]"
+              className="w-full px-2.5 py-1.5 rounded-lg bg-transparent border border-obsidian-border focus:border-obsidian-borderBright text-xs text-obsidian-inkPrimary focus:outline-none transition-colors [color-scheme:dark]"
             />
           )}
           {formError && <div className="text-[11px] text-red-400">{formError}</div>}
@@ -280,7 +280,7 @@ export const TaskManagerPanel: React.FC = () => {
             <button
               type="button"
               onClick={createTask}
-              className="px-3 py-1.5 rounded-lg bg-obsidian-inkPrimary text-obsidian-canvas hover:bg-zinc-200 text-[11px] font-semibold transition-colors cursor-pointer"
+              className="px-3 py-1.5 rounded-lg bg-obsidian-inkPrimary text-obsidian-canvas hover:bg-obsidian-accentHover text-[11px] font-semibold transition-colors cursor-pointer"
             >
               Schedule task
             </button>
@@ -290,7 +290,7 @@ export const TaskManagerPanel: React.FC = () => {
         <button
           type="button"
           onClick={() => setIsCreating(true)}
-          className="w-full px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-obsidian-inkSecondary hover:text-obsidian-inkPrimary text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1.5"
+          className="w-full px-3 py-1.5 rounded-lg border border-obsidian-border bg-obsidian-surface1 hover:bg-obsidian-surface2 text-obsidian-inkSecondary hover:text-obsidian-inkPrimary text-xs font-medium transition-colors duration-150 cursor-pointer flex items-center justify-center gap-1.5"
         >
           <Plus className="w-3.5 h-3.5" aria-hidden="true" />
           <span>Schedule a task</span>

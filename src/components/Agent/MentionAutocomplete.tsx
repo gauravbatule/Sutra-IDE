@@ -27,6 +27,7 @@ export const MentionAutocomplete: React.FC<MentionAutocompleteProps> = ({
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
+    let isCancelled = false;
     const cleanFilter = filter.toLowerCase().replace(/^@/, '');
     const results: MentionItem[] = [];
 
@@ -47,12 +48,28 @@ export const MentionAutocomplete: React.FC<MentionAutocompleteProps> = ({
     // 2. Global Mention Tokens
     const defaultActions: MentionItem[] = [
       {
-        id: 'ctx-git',
+        id: 'ctx-git-diff',
         type: 'git',
-        label: 'Git Diffs & Branch Status',
-        detail: 'Inject uncommitted changes & recent commits',
+        label: 'Git Diffs & Changes',
+        detail: 'Inject uncommitted working tree diff',
+        icon: GitBranch,
+        value: '@git:diff',
+      },
+      {
+        id: 'ctx-git-status',
+        type: 'git',
+        label: 'Git Status',
+        detail: 'Modified, staged & untracked files',
         icon: GitBranch,
         value: '@git:status',
+      },
+      {
+        id: 'ctx-problems',
+        type: 'symbol',
+        label: 'Compiler Diagnostics',
+        detail: 'Inject active TypeScript & lint errors',
+        icon: Code,
+        value: '@problems',
       },
       {
         id: 'ctx-terminal',
@@ -60,7 +77,7 @@ export const MentionAutocomplete: React.FC<MentionAutocompleteProps> = ({
         label: 'Active Terminal Buffer',
         detail: 'Inject latest shell output & errors',
         icon: Terminal,
-        value: '@terminal:latest',
+        value: '@terminal',
       },
       {
         id: 'ctx-codebase',
@@ -81,13 +98,45 @@ export const MentionAutocomplete: React.FC<MentionAutocompleteProps> = ({
     ];
 
     defaultActions.forEach((act) => {
-      if (!cleanFilter || act.label.toLowerCase().includes(cleanFilter) || act.detail?.toLowerCase().includes(cleanFilter)) {
+      if (
+        !cleanFilter ||
+        act.label.toLowerCase().includes(cleanFilter) ||
+        act.detail?.toLowerCase().includes(cleanFilter) ||
+        act.value.toLowerCase().includes(cleanFilter)
+      ) {
         results.push(act);
       }
     });
 
-    setItems(results);
+    setItems([...results]);
     setSelectedIndex(0);
+
+    // 3. Dynamic Codebase Symbols Fetch from AST Indexer
+    if (cleanFilter.length >= 2) {
+      fetch(`/api/codebase/symbols?query=${encodeURIComponent(cleanFilter)}&limit=12`)
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((data) => {
+          if (isCancelled || !Array.isArray(data.symbols)) return;
+          const symbolItems: MentionItem[] = data.symbols.map((sym: any) => ({
+            id: `sym-${sym.name}-${sym.line}`,
+            type: 'symbol' as const,
+            label: sym.name,
+            detail: `${sym.kind} · ${sym.filePath}:${sym.line}`,
+            icon: Code,
+            value: `@symbol:${sym.name}`,
+          }));
+          setItems((prev) => {
+            const existingIds = new Set(prev.map((i) => i.id));
+            const fresh = symbolItems.filter((s) => !existingIds.has(s.id));
+            return [...prev, ...fresh];
+          });
+        })
+        .catch(() => undefined);
+    }
+
+    return () => {
+      isCancelled = true;
+    };
   }, [filter, openTabs]);
 
   useEffect(() => {
@@ -116,7 +165,7 @@ export const MentionAutocomplete: React.FC<MentionAutocompleteProps> = ({
   if (items.length === 0) return null;
 
   return (
-    <div className="absolute bottom-full left-2 right-2 mb-2 bg-obsidian-surface1 border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 backdrop-blur-xl font-mono text-xs max-h-64 flex flex-col">
+    <div className="absolute bottom-full left-2 right-2 mb-2 bg-obsidian-surface1 border border-obsidian-border rounded-xl shadow-2xl overflow-hidden z-50 backdrop-blur-xl font-mono text-xs max-h-64 flex flex-col">
       <div className="px-3 py-1.5 bg-obsidian-surface2 border-b border-obsidian-hairline flex items-center justify-between text-[10px] text-obsidian-inkMuted uppercase tracking-wider font-semibold">
         <span>Insert Context Mention (@)</span>
         <span>↑↓ Navigate • Enter Select</span>
@@ -133,10 +182,10 @@ export const MentionAutocomplete: React.FC<MentionAutocompleteProps> = ({
               className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2.5 transition-colors cursor-pointer ${
                 isSelected
                   ? 'bg-obsidian-inkPrimary text-obsidian-canvas font-semibold'
-                  : 'hover:bg-white/[0.06] text-obsidian-inkPrimary'
+                  : 'hover:bg-obsidian-surface2 text-obsidian-inkPrimary'
               }`}
             >
-              <div className={`p-1 rounded ${isSelected ? 'bg-black/20 text-obsidian-canvas' : 'bg-obsidian-surface2 text-obsidian-inkSecondary'}`}>
+              <div className={`p-1 rounded ${isSelected ? 'bg-[color:var(--overlay-muted)] text-obsidian-inkPrimary' : 'bg-obsidian-surface2 text-obsidian-inkSecondary'}`}>
                 <Icon className="w-3.5 h-3.5" />
               </div>
               <div className="flex-1 min-w-0">
@@ -148,7 +197,7 @@ export const MentionAutocomplete: React.FC<MentionAutocompleteProps> = ({
                 )}
               </div>
               <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono ${
-                isSelected ? 'bg-black/20 text-obsidian-canvas' : 'bg-obsidian-surface2 text-obsidian-inkMuted'
+                isSelected ? 'bg-[color:var(--overlay-muted)] text-obsidian-inkPrimary' : 'bg-obsidian-surface2 text-obsidian-inkMuted'
               }`}>
                 {item.type}
               </span>

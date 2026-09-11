@@ -46,21 +46,27 @@ export const CommandPalette: React.FC = () => {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
 
-  // Fetch workspace files for quick navigation
+  // Fetch workspace files for quick navigation (recursive)
   useEffect(() => {
     if (isCommandPaletteOpen) {
       fetch('/api/fs/tree')
         .then((r) => r.json())
         .then((data) => {
-          const files: string[] = [];
-          if (Array.isArray(data)) {
-            for (const node of data) {
+          const flattenNodes = (nodes: any[]): string[] => {
+            const list: string[] = [];
+            for (const node of nodes) {
               if (!node.isDir && node.path) {
-                files.push(node.path);
+                list.push(node.path);
+              }
+              if (node.children && Array.isArray(node.children)) {
+                list.push(...flattenNodes(node.children));
               }
             }
+            return list;
+          };
+          if (Array.isArray(data)) {
+            setWorkspaceFiles(flattenNodes(data));
           }
-          setWorkspaceFiles(files);
         })
         .catch(() => setWorkspaceFiles([]));
     }
@@ -111,7 +117,7 @@ export const CommandPalette: React.FC = () => {
     },
     {
       id: 'cmd-swarm',
-      title: 'Swarm: Subagents Matrix & Parallel Execution',
+      title: 'Agents: Subagent Matrix & Parallel Execution',
       category: 'AI Agent',
       icon: Bot,
       action: () => setActiveSidebar('swarm'),
@@ -182,7 +188,7 @@ export const CommandPalette: React.FC = () => {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || (e.shiftKey && e.key.toLowerCase() === 'p'))) {
+      if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'p')) {
         e.preventDefault();
         setCommandPaletteOpen(!isCommandPaletteOpen);
       }
@@ -197,11 +203,16 @@ export const CommandPalette: React.FC = () => {
   if (!isCommandPaletteOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-start justify-center pt-20 p-6 animate-in fade-in">
-      <div className="w-full max-w-xl bg-obsidian-surface1 border border-white/10 rounded-xl overflow-hidden shadow-2xl flex flex-col">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) setCommandPaletteOpen(false);
+      }}
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-start justify-center pt-20 p-4 sm:p-6 anim-fade-in select-none"
+    >
+      <div className="w-full max-w-xl bg-obsidian-surface1 border border-obsidian-border rounded-xl overflow-hidden shadow-2xl flex flex-col anim-appear">
         {/* Search Input */}
-        <div className="p-3 border-b border-obsidian-hairline flex items-center gap-2">
-          <Search className="w-4 h-4 text-obsidian-accent shrink-0" />
+        <div className="p-3 border-b border-obsidian-hairline flex items-center gap-2.5">
+          <Search className="w-4 h-4 text-obsidian-inkSecondary shrink-0" />
           <input
             type="text"
             value={query}
@@ -229,13 +240,15 @@ export const CommandPalette: React.FC = () => {
             className="flex-1 bg-transparent text-xs text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none font-mono"
           />
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-[10px] font-mono text-obsidian-inkMuted bg-obsidian-surface2 px-1.5 py-0.5 rounded border border-white/[0.04]">
+            <span className="text-[10px] font-mono text-obsidian-inkMuted bg-obsidian-surface2 px-1.5 py-0.5 rounded border border-obsidian-hairline select-none">
               ESC
             </span>
             <button
+              type="button"
               onClick={() => setCommandPaletteOpen(false)}
-              className="p-1 rounded text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 transition-colors cursor-pointer"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-obsidian-surface2 border border-transparent hover:border-obsidian-hairline transition-all active:scale-95 cursor-pointer"
               title="Close Command Palette (Esc)"
+              aria-label="Close Command Palette"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -250,15 +263,17 @@ export const CommandPalette: React.FC = () => {
             return (
               <div
                 key={item.id}
+                role="option"
+                aria-selected={isSelected}
                 onClick={() => {
                   item.action();
                   setCommandPaletteOpen(false);
                 }}
                 onMouseEnter={() => setSelectedIndex(idx)}
-                className={`flex items-center justify-between px-3 py-2 rounded-md cursor-pointer transition-colors ${
+                className={`flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-all ${
                   isSelected
-                    ? 'bg-obsidian-inkPrimary text-obsidian-canvas font-semibold'
-                    : 'text-obsidian-inkSecondary hover:bg-white/[0.05]'
+                    ? 'bg-obsidian-inkPrimary text-obsidian-canvas font-semibold shadow-xs'
+                    : 'text-obsidian-inkSecondary hover:bg-obsidian-surface2 hover:text-obsidian-inkPrimary'
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -267,7 +282,7 @@ export const CommandPalette: React.FC = () => {
                 </div>
                 <span
                   className={`text-[9px] font-mono shrink-0 ml-2 px-1.5 py-0.5 rounded ${
-                    isSelected ? 'bg-black/20 text-obsidian-canvas' : 'bg-white/[0.04] text-obsidian-inkMuted'
+                    isSelected ? 'bg-[color:var(--overlay-muted)] text-obsidian-inkPrimary font-medium' : 'bg-obsidian-surface2 text-obsidian-inkMuted border border-obsidian-hairline'
                   }`}
                 >
                   {item.category}
@@ -276,7 +291,7 @@ export const CommandPalette: React.FC = () => {
             );
           })}
           {filtered.length === 0 && (
-            <div className="text-center py-6 text-obsidian-inkMuted text-xs">
+            <div className="text-center py-6 text-obsidian-inkMuted text-xs font-mono">
               No matching files or commands found for "{query}".
             </div>
           )}

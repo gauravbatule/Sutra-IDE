@@ -134,8 +134,9 @@ describe('truncateToolOutput', () => {
     expect(SecurityGuardrails.truncateToolOutput('short', 100)).toBe('short');
   });
 
-  it('truncates and annotates long output', () => {
+  it('truncates and annotates long output with bi-directional folding', () => {
     const out = SecurityGuardrails.truncateToolOutput('x'.repeat(500), 100);
-    expect(out).toContain('TRUNCATED 400 CHARACTERS');
+    expect(out).toContain('FOLDED');
+    expect(out.length).toBeLessThan(500);
   });
 });

@@ -1,11 +1,14 @@
 /**
- * LSP Manager for OmniCraft IDE
+ * LSP Manager for SUTRA IDE
  * Provides Language Server Protocol integration for TypeScript, Python, and other languages
  * Enables real-time diagnostics, go-to-definition, find references, and intelligent code navigation
  */
 
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
+import path from 'path';
+import fs from 'fs';
+import { pathToFileURL, fileURLToPath } from 'url';
 
 export interface LSPDiagnostic {
   severity: number; // 1=Error, 2=Warning, 3=Info, 4=Hint
@@ -61,18 +64,62 @@ export class LSPManager extends EventEmitter {
     }
   }
 
+  private toUri(filePath: string): string {
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(this.workspaceRoot, filePath);
+    return pathToFileURL(absPath).href;
+  }
+
+  private fromUri(uri: string): string {
+    try {
+      return fileURLToPath(uri);
+    } catch {
+      return uri.replace(/^file:\/\//, '');
+    }
+  }
+
   /**
    * Start TypeScript Language Server (tsserver)
    */
   private async startTypeScriptServer(): Promise<void> {
     try {
-      // Use typescript-language-server wrapper around tsserver (Windows compatibility with shell: true)
-      const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-      const serverProcess = spawn(cmd, ['typescript-language-server', '--stdio'], {
-        cwd: this.workspaceRoot,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        shell: process.platform === 'win32',
-      });
+      const isWin = process.platform === 'win32';
+      const ideRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+      const candidateCliPaths = [
+        path.resolve(this.workspaceRoot, 'node_modules', 'typescript-language-server', 'lib', 'cli.mjs'),
+        path.resolve(ideRoot, 'node_modules', 'typescript-language-server', 'lib', 'cli.mjs'),
+      ];
+      const cliEntry = candidateCliPaths.find((p) => fs.existsSync(p));
+
+      const candidateBinPaths = [
+        path.resolve(this.workspaceRoot, 'node_modules', '.bin', isWin ? 'typescript-language-server.cmd' : 'typescript-language-server'),
+        path.resolve(ideRoot, 'node_modules', '.bin', isWin ? 'typescript-language-server.cmd' : 'typescript-language-server'),
+      ];
+      const localBin = candidateBinPaths.find((p) => fs.existsSync(p));
+
+      let serverProcess: ChildProcess;
+      if (cliEntry) {
+        serverProcess = spawn(process.execPath, [cliEntry, '--stdio'], {
+          cwd: this.workspaceRoot,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          shell: false,
+          windowsHide: true,
+        });
+      } else if (localBin) {
+        serverProcess = spawn(localBin, ['--stdio'], {
+          cwd: this.workspaceRoot,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          shell: isWin,
+          windowsHide: true,
+        });
+      } else {
+        const cmd = isWin ? 'typescript-language-server.cmd' : 'typescript-language-server';
+        serverProcess = spawn(cmd, ['--stdio'], {
+          cwd: this.workspaceRoot,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          shell: isWin,
+          windowsHide: true,
+        });
+      }
 
       serverProcess.on('error', (err) => {
         console.warn('[TypeScript LSP] Process spawn error:', err.message);
@@ -81,22 +128,53 @@ export class LSPManager extends EventEmitter {
 
       this.servers.set('typescript', serverProcess);
 
-      let buffer = '';
+      let buffer: Buffer = Buffer.alloc(0);
 
       serverProcess.stdout?.on('data', (data: Buffer) => {
-        buffer += data.toString();
-        const messages = buffer.split('\r\n\r\n');
-        buffer = messages.pop() || '';
+        buffer = Buffer.concat([buffer, data]);
+        while (true) {
+          const headerSeparator = Buffer.from('\r\n\r\n');
+          const headerEndIndex = buffer.indexOf(headerSeparator);
+          if (headerEndIndex === -1) {
+            if (buffer.length > 0 && buffer[0] === 0x7b /* '{' */) {
+              const newlineIdx = buffer.indexOf(0x0a /* '\n' */);
+              if (newlineIdx !== -1) {
+                const rawJson = buffer.subarray(0, newlineIdx).toString('utf-8');
+                buffer = buffer.subarray(newlineIdx + 1);
+                this.handleServerMessage('typescript', rawJson);
+                continue;
+              }
+            }
+            break;
+          }
 
-        for (const msg of messages) {
-          if (msg.trim()) {
-            this.handleServerMessage('typescript', msg);
+          const headerText = buffer.subarray(0, headerEndIndex).toString('ascii');
+          const lengthMatch = headerText.match(/Content-Length:\s*(\d+)/i);
+          if (!lengthMatch) {
+            buffer = buffer.subarray(headerEndIndex + 4);
+            continue;
+          }
+
+          const contentLength = parseInt(lengthMatch[1], 10);
+          const bodyStart = headerEndIndex + 4;
+          const bodyEnd = bodyStart + contentLength;
+
+          if (buffer.length < bodyEnd) {
+            break;
+          }
+
+          const messageJson = buffer.subarray(bodyStart, bodyEnd).toString('utf-8');
+          buffer = buffer.subarray(bodyEnd);
+
+          if (messageJson.trim()) {
+            this.handleServerMessage('typescript', messageJson);
           }
         }
       });
 
       serverProcess.stderr?.on('data', (data: Buffer) => {
-        console.warn('[TypeScript LSP] Stderr:', data.toString().slice(0, 200));
+        const text = data.toString().trim();
+        if (text) console.warn('[TypeScript LSP] Stderr:', text.slice(0, 200));
       });
 
       serverProcess.on('exit', (code) => {
@@ -107,7 +185,7 @@ export class LSPManager extends EventEmitter {
       // Send initialize request
       await this.sendRequest('typescript', 'initialize', {
         processId: process.pid,
-        rootUri: `file://${this.workspaceRoot}`,
+        rootUri: this.toUri(this.workspaceRoot),
         capabilities: {
           textDocument: {
             publishDiagnostics: {},
@@ -131,8 +209,6 @@ export class LSPManager extends EventEmitter {
    */
   private handleServerMessage(language: LSPLanguage, message: string): void {
     try {
-      // Content-Length framing is intentionally not validated — messages arrive
-      // newline-delimited here, so the JSON payload is located directly instead.
       const jsonStart = message.indexOf('{');
       if (jsonStart === -1) return;
 
@@ -156,12 +232,17 @@ export class LSPManager extends EventEmitter {
     }
   }
 
+  private normalizeKey(filePath: string): string {
+    const resolved = path.isAbsolute(filePath) ? filePath : path.resolve(this.workspaceRoot, filePath);
+    return resolved.toLowerCase().replace(/\\/g, '/');
+  }
+
   /**
    * Handle diagnostics from LSP server
    */
   private handleDiagnostics(params: any): void {
     const uri = params.uri;
-    const filePath = uri.replace('file://', '');
+    const filePath = this.fromUri(uri);
     const diagnostics: LSPDiagnostic[] = params.diagnostics.map((d: any) => ({
       severity: d.severity || 1,
       startLine: d.range.start.line + 1, // LSP is 0-indexed
@@ -173,7 +254,7 @@ export class LSPManager extends EventEmitter {
       code: d.code,
     }));
 
-    this.diagnosticsCache.set(filePath, diagnostics);
+    this.diagnosticsCache.set(this.normalizeKey(filePath), diagnostics);
     this.emit('diagnostics', { filePath, diagnostics });
   }
 
@@ -238,7 +319,7 @@ export class LSPManager extends EventEmitter {
 
     this.sendNotification(language, 'textDocument/didOpen', {
       textDocument: {
-        uri: `file://${filePath}`,
+        uri: this.toUri(filePath),
         languageId,
         version: 1,
         text: content,
@@ -255,7 +336,7 @@ export class LSPManager extends EventEmitter {
 
     this.sendNotification(language, 'textDocument/didChange', {
       textDocument: {
-        uri: `file://${filePath}`,
+        uri: this.toUri(filePath),
         version: Date.now(),
       },
       contentChanges: [{ text: content }],
@@ -266,7 +347,7 @@ export class LSPManager extends EventEmitter {
    * Get diagnostics for a file
    */
   getDiagnostics(filePath: string): LSPDiagnostic[] {
-    return this.diagnosticsCache.get(filePath) || [];
+    return this.diagnosticsCache.get(this.normalizeKey(filePath)) || [];
   }
 
   /**
@@ -283,7 +364,7 @@ export class LSPManager extends EventEmitter {
 
     try {
       const result = await this.sendRequest(language, 'textDocument/definition', {
-        textDocument: { uri: `file://${filePath}` },
+        textDocument: { uri: this.toUri(filePath) },
         position: { line: line - 1, character: character - 1 }, // 0-indexed
       });
 
@@ -307,7 +388,7 @@ export class LSPManager extends EventEmitter {
 
     try {
       const result = await this.sendRequest(language, 'textDocument/references', {
-        textDocument: { uri: `file://${filePath}` },
+        textDocument: { uri: this.toUri(filePath) },
         position: { line: line - 1, character: character - 1 },
         context: { includeDeclaration: true },
       });
@@ -327,7 +408,7 @@ export class LSPManager extends EventEmitter {
 
     try {
       const result = await this.sendRequest(language, 'textDocument/documentSymbol', {
-        textDocument: { uri: `file://${filePath}` },
+        textDocument: { uri: this.toUri(filePath) },
       });
 
       return Array.isArray(result) ? result : [];

@@ -132,7 +132,7 @@ export const VisualSwarmGraph: React.FC = () => {
           {selectedAgent ? (
             <button
               onClick={() => setSelectedId(null)}
-              className="p-1 rounded-lg hover:bg-white/[0.06] text-obsidian-inkSecondary hover:text-obsidian-inkPrimary transition-colors"
+              className="p-1 rounded-lg hover:bg-obsidian-surface2 text-obsidian-inkSecondary hover:text-obsidian-inkPrimary transition-colors"
               title="Back to all subagents"
             >
               <ArrowLeft className="w-4 h-4" />

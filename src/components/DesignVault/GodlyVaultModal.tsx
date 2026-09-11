@@ -80,7 +80,7 @@ export const GodlyVaultModal: React.FC = () => {
     openFile({
       path: `src/components/injected/${cleanName}.tsx`,
       name: `${cleanName}.tsx`,
-      content: `// Injected via Live Web Scraper & Research Engine\n// Source: ${title}\nimport React from 'react';\n\nexport const ${cleanName}: React.FC = () => {\n  return (\n    <div className="p-6 bg-obsidian-surface1 text-obsidian-inkPrimary rounded-xl border border-white/10">\n      <h2 className="text-xl font-bold mb-3">${title}</h2>\n      <pre className="text-xs font-mono text-obsidian-inkSecondary overflow-x-auto p-4 bg-obsidian-surface3 rounded">\n{\`${code.replace(/`/g, '\\`')}\`}\n      </pre>\n    </div>\n  );\n};\n`,
+      content: `// Injected via Live Web Scraper & Research Engine\n// Source: ${title}\nimport React from 'react';\n\nexport const ${cleanName}: React.FC = () => {\n  return (\n    <div className="p-6 bg-obsidian-surface1 text-obsidian-inkPrimary rounded-xl border border-obsidian-border">\n      <h2 className="text-xl font-bold mb-3">${title}</h2>\n      <pre className="text-xs font-mono text-obsidian-inkSecondary overflow-x-auto p-4 bg-obsidian-surface3 rounded">\n{\`${code.replace(/`/g, '\\`')}\`}\n      </pre>\n    </div>\n  );\n};\n`,
     });
     setVaultModalOpen(false);
   };
@@ -91,11 +91,11 @@ export const GodlyVaultModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in">
-      <div className="w-full max-w-5xl h-[85vh] bg-obsidian-surface1 border border-white/10 rounded-2xl flex flex-col overflow-hidden shadow-2xl">
+      <div className="w-full max-w-5xl h-[85vh] bg-obsidian-surface1 border border-obsidian-border rounded-2xl flex flex-col overflow-hidden shadow-2xl">
         {/* Header */}
         <div className="p-4 border-b border-obsidian-hairline flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/10 flex items-center justify-center text-obsidian-inkPrimary">
+            <div className="w-7 h-7 rounded-lg bg-obsidian-surface1 border border-obsidian-border flex items-center justify-center text-obsidian-inkPrimary">
               <Layers className="w-4 h-4" />
             </div>
             <div>
@@ -113,7 +113,7 @@ export const GodlyVaultModal: React.FC = () => {
 
           <button
             onClick={() => setVaultModalOpen(false)}
-            className="p-1.5 rounded-lg hover:bg-obsidian-surface4 text-obsidian-inkSecondary hover:text-white transition-colors"
+            className="p-1.5 rounded-lg hover:bg-obsidian-surface4 text-obsidian-inkSecondary hover:text-obsidian-inkPrimary transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -153,7 +153,7 @@ export const GodlyVaultModal: React.FC = () => {
                     onClick={() => setSelectedCategory(cat)}
                     className={`w-full text-left px-3 py-2 rounded-lg font-medium uppercase text-[11px] tracking-wider transition-colors ${
                       selectedCategory === cat
-                        ? 'bg-white/[0.04] text-obsidian-inkPrimary border border-white/10'
+                        ? 'bg-obsidian-surface1 text-obsidian-inkPrimary border border-obsidian-border'
                         : 'text-obsidian-inkSecondary hover:bg-obsidian-surface4/50 hover:text-obsidian-inkPrimary'
                     }`}
                   >
@@ -161,11 +161,11 @@ export const GodlyVaultModal: React.FC = () => {
                   </button>
                 ))}
 
-                <div className="pt-4 mt-4 border-t border-white/5">
+                <div className="pt-4 mt-4 border-t border-obsidian-hairline">
                   <div className="px-3 text-[10px] font-mono text-obsidian-inkMuted uppercase tracking-wider mb-2">
                     Visual Quality
                   </div>
-                  <div className="px-3 py-2 rounded-lg bg-obsidian-surface3 border border-white/5 text-[11px] text-obsidian-inkSecondary">
+                  <div className="px-3 py-2 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline text-[11px] text-obsidian-inkSecondary">
                     <div className="flex items-center gap-1 text-obsidian-inkPrimary font-bold mb-1">
                       <ShieldCheck className="w-3.5 h-3.5" />
                       Anti-Slop V2.0
@@ -180,7 +180,7 @@ export const GodlyVaultModal: React.FC = () => {
                 {filtered.map((pat) => (
                   <div
                     key={pat.id}
-                    className="p-4 rounded-xl bg-obsidian-surface3/60 border border-white/5 hover:border-white/10 transition-all flex flex-col justify-between group"
+                    className="p-4 rounded-xl bg-obsidian-surface3/60 border border-obsidian-hairline hover:border-obsidian-border transition-all flex flex-col justify-between group"
                   >
                     <div>
                       <div className="flex items-center justify-between mb-2">
@@ -200,7 +200,7 @@ export const GodlyVaultModal: React.FC = () => {
                       <p className="text-xs text-obsidian-inkSecondary leading-relaxed mb-4">{pat.previewDescription}</p>
                     </div>
 
-                    <div className="flex items-center justify-between pt-3 border-t border-white/5">
+                    <div className="flex items-center justify-between pt-3 border-t border-obsidian-hairline">
                       <button
                         onClick={() => {
                           navigator.clipboard.writeText(pat.codeTemplate);
@@ -222,7 +222,7 @@ export const GodlyVaultModal: React.FC = () => {
                           });
                           setVaultModalOpen(false);
                         }}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-obsidian-surface4 hover:bg-obsidian-surface4 text-white font-medium text-xs shadow-md shadow-black/40 transition-all active:scale-95"
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-obsidian-surface4 hover:bg-obsidian-surface4 text-obsidian-inkPrimary font-medium text-xs shadow-md shadow-black/40 transition-all active:scale-95"
                       >
                         <Wand2 className="w-3.5 h-3.5" />
                         Inject into Project
@@ -246,13 +246,13 @@ export const GodlyVaultModal: React.FC = () => {
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleLiveSearch()}
                     placeholder="Search Google, Godly, or documentation for live design patterns (e.g. 'Linear dark hero component', 'Stripe pricing table CSS')..."
-                    className="w-full bg-obsidian-surface3 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-xs text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent"
+                    className="w-full bg-obsidian-surface3 border border-obsidian-border rounded-xl pl-9 pr-4 py-2.5 text-xs text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent"
                   />
                 </div>
                 <button
                   onClick={handleLiveSearch}
                   disabled={isSearching || !searchQuery.trim()}
-                  className="px-5 py-2.5 rounded-xl bg-obsidian-surface4 hover:bg-obsidian-surface4 text-white font-medium text-xs flex items-center gap-1.5 transition-all shadow-md shadow-black/40 active:scale-95"
+                  className="px-5 py-2.5 rounded-xl bg-obsidian-surface4 hover:bg-obsidian-surface4 text-obsidian-inkPrimary font-medium text-xs flex items-center gap-1.5 transition-all shadow-md shadow-black/40 active:scale-95"
                 >
                   <Globe className="w-3.5 h-3.5" />
                   {isSearching ? 'Searching...' : 'Search Web'}
@@ -262,7 +262,7 @@ export const GodlyVaultModal: React.FC = () => {
               {/* Search Results */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {searchResults.map((res, i) => (
-                  <div key={i} className="p-4 rounded-xl bg-obsidian-surface3/60 border border-white/5 flex flex-col justify-between hover:border-white/10 transition-all">
+                  <div key={i} className="p-4 rounded-xl bg-obsidian-surface3/60 border border-obsidian-hairline flex flex-col justify-between hover:border-obsidian-border transition-all">
                     <div>
                       <div className="flex items-center justify-between text-[10px] font-mono text-obsidian-inkPrimary mb-1">
                         <span>{res.source}</span>
@@ -288,13 +288,13 @@ export const GodlyVaultModal: React.FC = () => {
 
               {/* Scraped & Compressed Knowledge Inspector */}
               {scrapedData && (
-                <div className="p-4 rounded-xl bg-obsidian-surface1 border border-white/10 space-y-3">
-                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                <div className="p-4 rounded-xl bg-obsidian-surface1 border border-obsidian-border space-y-3">
+                  <div className="flex items-center justify-between border-b border-obsidian-border pb-2">
                     <div className="flex items-center gap-2">
                       <Cpu className="w-4 h-4 text-obsidian-inkPrimary" />
                       <span className="font-bold text-xs text-obsidian-inkPrimary">Compressed Knowledge & Extracted Code</span>
                     </div>
-                    <div className="text-[10px] font-mono text-obsidian-inkPrimary bg-white/[0.04] px-2 py-0.5 rounded">
+                    <div className="text-[10px] font-mono text-obsidian-inkPrimary bg-obsidian-surface1 px-2 py-0.5 rounded">
                       Saved ~{scrapedData.tokensSavedEstimate} Tokens
                     </div>
                   </div>
@@ -307,13 +307,13 @@ export const GodlyVaultModal: React.FC = () => {
                     <div className="space-y-2">
                       <span className="text-xs font-bold text-obsidian-inkPrimary">Extracted Code Blocks:</span>
                       {scrapedData.codeBlocks.map((code: string, idx: number) => (
-                        <div key={idx} className="p-3 rounded-lg bg-obsidian-surface3 border border-white/5 space-y-2">
+                        <div key={idx} className="p-3 rounded-lg bg-obsidian-surface3 border border-obsidian-hairline space-y-2">
                           <pre className="text-[11px] font-mono text-obsidian-inkPrimary max-h-32 overflow-y-auto">
                             {code}
                           </pre>
                           <button
                             onClick={() => handleInjectInspiration(`ExtractedPattern${idx + 1}`, code)}
-                            className="px-3 py-1.5 rounded bg-obsidian-surface4 hover:bg-obsidian-surface4 text-white font-medium text-xs flex items-center gap-1 transition-all"
+                            className="px-3 py-1.5 rounded bg-obsidian-surface4 hover:bg-obsidian-surface4 text-obsidian-inkPrimary font-medium text-xs flex items-center gap-1 transition-all"
                           >
                             <FileCode className="w-3 h-3" />
                             Inject Extracted Code

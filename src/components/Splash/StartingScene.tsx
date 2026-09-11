@@ -5,7 +5,7 @@ interface StartingSceneProps {
   duration?: number;
 }
 
-export const StartingScene: React.FC<StartingSceneProps> = ({ onComplete, duration = 2200 }) => {
+export const StartingScene: React.FC<StartingSceneProps> = ({ onComplete, duration = 1200 }) => {
   const [progress, setProgress] = useState(0);
   const [isFadingOut, setIsFadingOut] = useState(false);
 
@@ -44,10 +44,9 @@ export const StartingScene: React.FC<StartingSceneProps> = ({ onComplete, durati
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-black text-white select-none transition-opacity duration-500 ease-out font-sans ${
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-obsidian-canvas text-obsidian-inkPrimary select-none transition-opacity duration-500 ease-out font-sans ${
         isFadingOut ? 'opacity-0 pointer-events-none' : 'opacity-100'
       }`}
-      style={{ backgroundColor: '#000000' }}
     >
       {/* Logo */}
       <img
@@ -57,10 +56,10 @@ export const StartingScene: React.FC<StartingSceneProps> = ({ onComplete, durati
       />
 
       {/* Wordmark */}
-      <div className="text-2xl font-light tracking-[0.3em] text-white uppercase mb-8">SUTRA</div>
+      <div className="text-2xl font-light tracking-[0.3em] text-obsidian-inkPrimary uppercase mb-8">SUTRA</div>
 
       {/* Minimal progress line */}
-      <div className="w-44 h-[2px] bg-white/[0.08] rounded-full overflow-hidden">
+      <div className="w-44 h-[2px] bg-obsidian-surface2 rounded-full overflow-hidden">
         <div
           className="h-full bg-white/80 transition-all duration-75 rounded-full"
           style={{ width: `${progress}%` }}

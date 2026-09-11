@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { useIDEStore } from '../stores/ideStore.js';
-import type { OmniAgentMessage, PendingAgentQuestion, ToolCallPayload } from '../types/ide.js';
+import type { SutraAgentMessage, PendingAgentQuestion, ToolCallPayload } from '../types/ide.js';
 
 /**
  * Standalone singleton WebSocket client for the Manager conversation surface.
@@ -66,13 +66,27 @@ export const useConnectionLost = (): [boolean, () => void] => {
  * hydration from resurrecting a question the user just answered.
  */
 const answeredQuestionIds = new Set<string>();
+const unansweredQuestionIds = new Set<string>();
 
 export const markQuestionAnswered = (id: string): void => {
-  if (id) answeredQuestionIds.add(id);
+  if (id) {
+    answeredQuestionIds.add(id);
+    unansweredQuestionIds.delete(id);
+  }
+};
+
+export const markQuestionUnanswered = (id: string): void => {
+  if (id && !answeredQuestionIds.has(id)) {
+    unansweredQuestionIds.add(id);
+  }
 };
 
 export const wasQuestionAnswered = (id: string): boolean => {
   return answeredQuestionIds.has(id);
+};
+
+export const isQuestionUnanswered = (id: string): boolean => {
+  return unansweredQuestionIds.has(id);
 };
 
 /**
@@ -120,16 +134,25 @@ export interface SendAgentPromptOptions {
   isGoalMode?: boolean;
   /** Conversation id — scopes server-side working files (task plan) to this chat. */
   chatId?: string | null;
+  /** Data URLs for vision-capable models; serialized as image_url parts. */
+  images?: string[];
+  /** Execution mode: build (full tool loop), plan (read-only plan artifact), edit (surgical patch), chat (consultative Q&A) */
+  mode?: 'build' | 'plan' | 'edit' | 'chat';
 }
 
 export const resolveWsUrl = (): string => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsHost = window.location.port === '5173' ? `${window.location.hostname}:3001` : window.location.host;
+  const backendPort = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_BACKEND_PORT) || '3001';
+  const wsHost = window.location.port === '5173' ? `${window.location.hostname}:${backendPort}` : window.location.host;
   return `${protocol}//${wsHost}/ws`;
 };
 
+let activeStreamFlush: (() => void) | null = null;
+
 /** Cancels the in-flight stream with the same cancel packet AgentChat sends. */
 export const cancelAgentStream = (): void => {
+  activeStreamFlush?.();
+  activeStreamFlush = null;
   if (activeSocket && activeSocket.readyState === WebSocket.OPEN) {
     activeSocket.send(
       JSON.stringify({
@@ -147,6 +170,32 @@ export const cancelAgentStream = (): void => {
 
 export const isAgentSocketBusy = (): boolean => Boolean(activeSocket && activeSocket.readyState === WebSocket.OPEN);
 
+/** Injects mid-flight steering message into the active agent stream without cancelling */
+export const steerAgentStream = (text: string): boolean => {
+  if (!text || !text.trim()) return false;
+  if (activeSocket && activeSocket.readyState === WebSocket.OPEN) {
+    activeSocket.send(
+      JSON.stringify({
+        channel: CHANNEL_AGENT_STREAM,
+        type: 'steer',
+        payload: { text: text.trim() },
+        timestamp: Date.now(),
+      })
+    );
+    appendUserMessageDeduped({
+      id: `steer-${Date.now()}`,
+      role: 'user',
+      // A steer is still a user message.  Rendering an implementation prefix
+      // here leaked "[Steer]: ?" into the transcript and made short
+      // instructions look like a broken system event.
+      content: text.trim(),
+      timestamp: Date.now(),
+    });
+    return true;
+  }
+  return false;
+};
+
 /**
  * Dedupe guard for optimistic user echoes. Both send paths (Manager prompt
  * send, AgentChat send/steer/retry) append locally; a retry or a double
@@ -157,7 +206,7 @@ export const isAgentSocketBusy = (): boolean => Boolean(activeSocket && activeSo
 const USER_DEDUPE_WINDOW_MS = 8000;
 const DEDUPE_SCAN_DEPTH = 8;
 
-export const appendUserMessageDeduped = (msg: OmniAgentMessage): boolean => {
+export const appendUserMessageDeduped = (msg: SutraAgentMessage): boolean => {
   const state = useIDEStore.getState();
   const trimmed = (msg.content || '').trim();
   const messages = state.agentMessages;
@@ -196,6 +245,21 @@ export const readStoredPriorityIds = (): string[] => {
   }
 };
 
+/** Local persistence key for which MCP servers the user has paused.
+ *  Mirrored on the client so the per-server toggle on the Tools pill can
+ *  survive a reload. The server reads the same key path on the next run. */
+export const MCP_DISABLED_KEY = 'sutra-mcp-disabled';
+
+export const readDisabledMcpServers = (): string[] => {
+  try {
+    const raw = localStorage.getItem(MCP_DISABLED_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((s) => typeof s === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
 /** Auto-compact preference (Settings > Routing). */
 export const readStoredAutoCompact = (): { enabled: boolean; threshold: number } => {
   try {
@@ -218,10 +282,12 @@ export const sendAgentPrompt = async (options: SendAgentPromptOptions): Promise<
   if (state.isAgentGenerating) return;
 
   const trimmed = options.text.trim();
-  if (!trimmed) return;
+  const hasAttachment = Boolean(options.attachedContext && options.attachedContext.trim());
+  const hasImage = (options.images || []).some((url) => typeof url === 'string' && url.startsWith('data:image/'));
+  if (!trimmed && !hasAttachment && !hasImage) return;
   lastSendAt = Date.now();
 
-  let userContent = trimmed;
+  let userContent = trimmed || 'Please inspect the attached context.';
   const isGoalTriggered = Boolean(options.isGoalMode) || userContent.includes('/goal');
   if (userContent.includes('/goal')) {
     userContent = userContent.replace(/\/goal/g, '').trim() || 'Autonomous mission execution';
@@ -231,22 +297,40 @@ export const sendAgentPrompt = async (options: SendAgentPromptOptions): Promise<
   }
 
   // Snapshot history BEFORE appending, so the replay excludes the placeholder
-  const historySnapshot: OmniAgentMessage[] = state.agentMessages;
+  const historySnapshot: SutraAgentMessage[] = state.agentMessages;
+
+  // A new prompt supersedes any active question and clears pendingAgentQuestion
+  const currentPending = state.pendingAgentQuestion;
+  if (currentPending) {
+    markQuestionUnanswered(currentPending.id);
+    useIDEStore.getState().setPendingAgentQuestion(null);
+  }
+  for (const m of historySnapshot) {
+    if (Array.isArray(m.toolCalls)) {
+      for (const tc of m.toolCalls) {
+        if (tc.tool === 'ask_user' && tc.id && !wasQuestionAnswered(tc.id)) {
+          markQuestionUnanswered(tc.id);
+        }
+      }
+    }
+  }
 
   // A new run always clears any lingering connection-lost banner
   clearConnectionLost();
   // ...and any evidence card from the previous run's verification stage
   useIDEStore.getState().setLastVerification(null);
 
-  const userMsg: OmniAgentMessage = {
+  const images = (options.images || []).filter((u) => typeof u === 'string' && u.startsWith('data:image/')).slice(0, 4);
+  const userMsg: SutraAgentMessage & { images?: string[] } = {
     id: `msg-${Date.now()}`,
     role: 'user',
     content: userContent,
+    ...(images.length > 0 ? { images } : {}),
     timestamp: Date.now(),
   };
   appendUserMessageDeduped(userMsg);
 
-  const assistantMsg: OmniAgentMessage = {
+  const assistantMsg: SutraAgentMessage = {
     id: `msg-asst-${Date.now()}`,
     role: 'assistant',
     content: '',
@@ -260,6 +344,9 @@ export const sendAgentPrompt = async (options: SendAgentPromptOptions): Promise<
   // No staged loader copy — the transcript shows one quiet "Astra is working" row
   // and the reasoning trace fills in only when real thinking chunks arrive.
   state.updateAgentThinking('');
+  // Clear any error from the previous run so the new run starts with a clean
+  // reasoning panel.
+  useIDEStore.getState().setLastThinkingError(null);
 
   try {
     const ws = new WebSocket(resolveWsUrl());
@@ -267,7 +354,13 @@ export const sendAgentPrompt = async (options: SendAgentPromptOptions): Promise<
 
     ws.onopen = () => {
       const serializedMessages = [...historySnapshot, userMsg]
-        .filter((m) => Boolean(m.content && m.content.trim()) || Boolean(m.toolCalls && m.toolCalls.length > 0))
+        .filter((m) => {
+          const withImages = m as SutraAgentMessage & { images?: string[] };
+          const hasText = Boolean(m.content && m.content.trim());
+          const hasTools = Boolean(m.toolCalls && m.toolCalls.length > 0);
+          const hasImages = Boolean(withImages.images && withImages.images.length > 0);
+          return hasText || hasTools || hasImages;
+        })
         .map((m) => {
           if (m.role === 'assistant' && (!m.content || !m.content.trim()) && m.toolCalls && m.toolCalls.length > 0) {
             return {
@@ -280,9 +373,18 @@ export const sendAgentPrompt = async (options: SendAgentPromptOptions): Promise<
               })),
             };
           }
+          const withImages = m as SutraAgentMessage & { images?: string[] };
+          const text = m.content || '';
+          let content: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = text;
+          if (withImages.images && withImages.images.length > 0) {
+            content = [
+              ...(text.trim() ? [{ type: 'text' as const, text }] : []),
+              ...withImages.images.slice(0, 4).map((url) => ({ type: 'image_url' as const, image_url: { url } })),
+            ];
+          }
           return {
             role: m.role,
-            content: m.content || '',
+            content,
             ...(m.toolCalls && m.toolCalls.length > 0
               ? {
                   tool_calls: m.toolCalls.map((tc) => ({
@@ -306,17 +408,30 @@ export const sendAgentPrompt = async (options: SendAgentPromptOptions): Promise<
       } = useIDEStore.getState();
       const activeTab = openTabs.find((t) => t.path === activeTabPath);
 
+      const currentActiveModel = useIDEStore.getState().activeModel;
+      const resolvedFullId = currentActiveModel
+        ? currentActiveModel.provider && !currentActiveModel.id.startsWith(`${currentActiveModel.provider}:`) && !currentActiveModel.id.startsWith(`${currentActiveModel.provider}/`)
+          ? `${currentActiveModel.provider}:${currentActiveModel.id}`
+          : currentActiveModel.id
+        : 'auto';
+
       ws.send(
         JSON.stringify({
           channel: CHANNEL_AGENT_STREAM,
           type: 'prompt',
           payload: {
+            model: resolvedFullId,
+            provider: currentActiveModel?.provider,
+            fullModelId: resolvedFullId !== 'auto' ? resolvedFullId : undefined,
             messages: serializedMessages,
             permissionLevel: useIDEStore.getState().permissionLevel,
+            harnessMode: useIDEStore.getState().harnessMode,
             priorityIds: readStoredPriorityIds(),
             autoCompact: readStoredAutoCompact().enabled,
             autoCompactThreshold: readStoredAutoCompact().threshold,
+            disabledMcpServers: readDisabledMcpServers(),
             isGoalMode: isGoalTriggered,
+            agentMode: options.mode || 'build',
             chatId: options.chatId || null,
             activeTabPath: activeTabPath || null,
             activeTabContent: activeTab?.content ? activeTab.content.slice(0, 4000) : null,
@@ -332,6 +447,39 @@ export const sendAgentPrompt = async (options: SendAgentPromptOptions): Promise<
       );
     };
 
+    // High-performance streaming batcher: batches rapid chunk deltas to 60/120Hz display refresh frames
+    // instead of triggering full React renders on every single character or token.
+    let pendingDelta = '';
+    let pendingThinking = '';
+    let rafId: number | null = null;
+
+    const flushStreamBuffer = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      const s = useIDEStore.getState();
+      if (pendingThinking) {
+        s.appendAgentThinking(pendingThinking);
+        pendingThinking = '';
+      }
+      if (pendingDelta) {
+        s.updateLastMessageContent(pendingDelta);
+        pendingDelta = '';
+      }
+    };
+
+    activeStreamFlush = flushStreamBuffer;
+
+    const scheduleFlush = () => {
+      if (rafId === null) {
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          flushStreamBuffer();
+        });
+      }
+    };
+
     ws.onmessage = (event) => {
       try {
         const packet = JSON.parse(event.data);
@@ -340,11 +488,12 @@ export const sendAgentPrompt = async (options: SendAgentPromptOptions): Promise<
         // ask_user: the agent parked its run and wants input (no channel field
         // — it rides the same JSON text channel as every other event).
         if (packet.type === 'agent_question') {
+          const q = (packet.payload || {}) as Record<string, unknown>;
           const question: PendingAgentQuestion = {
-            id: String(packet.id ?? ''),
-            question: String(packet.question ?? ''),
-            options: Array.isArray(packet.options) ? packet.options.map((o: unknown) => String(o)) : [],
-            allowFreeText: packet.allowFreeText !== false,
+            id: String(q.id ?? ''),
+            question: String(q.question ?? ''),
+            options: Array.isArray(q.options) ? q.options.map((o: unknown) => String(o)) : [],
+            allowFreeText: q.allowFreeText !== false,
           };
           store.setPendingAgentQuestion(question);
           return;
@@ -363,20 +512,39 @@ export const sendAgentPrompt = async (options: SendAgentPromptOptions): Promise<
 
         if (packet.channel === CHANNEL_TOOL_RESULT && packet.type === 'result') {
           const { tool, result, id } = packet.payload;
+          store.setPendingApprovals((prev: ToolCallPayload[]) => prev.filter((p: ToolCallPayload) => p.id !== id));
           store.updateToolCallResult(id, tool, result);
-          fetch('/api/swarm/status')
-            .then((r) => r.json())
-            .then((d) => store.setSubagents(d.subagents || []))
-            .catch(() => undefined);
-          fetch('/api/media/assets')
-            .then((r) => r.json())
-            .then((d) => store.setAssets(d || []))
-            .catch(() => undefined);
+          if (['write_file', 'edit_file', 'delete_file', 'rename_path'].includes(tool)) {
+            store.triggerFileTreeRefresh();
+          }
+          if (tool === 'verify_http_server' && result && (result.reachable === true || result.status === 200 || result.live === true) && !result.isExternal && !result.error) {
+            const port = result.port || 3000;
+            if (port !== 8081) {
+              const targetUrl = `http://localhost:${port}`;
+              store.setPreviewUrl(targetUrl);
+              if (!store.isPreviewOpen) {
+                store.togglePreview();
+              }
+            }
+          }
+          if (tool && (tool.includes('subagent') || tool.includes('swarm'))) {
+            fetch('/api/swarm/status')
+              .then((r) => r.json())
+              .then((d) => store.setSubagents(d.subagents || []))
+              .catch(() => undefined);
+          }
+          if (tool && (tool.includes('image') || tool.includes('asset') || tool.includes('video') || tool.includes('audio') || tool.includes('svg'))) {
+            fetch('/api/media/assets')
+              .then((r) => r.json())
+              .then((d) => store.setAssets(d || []))
+              .catch(() => undefined);
+          }
           return;
         }
 
         if (packet.channel === CHANNEL_TOOL_RESULT && packet.type === 'error') {
           const { tool, error, id } = packet.payload;
+          store.setPendingApprovals((prev: ToolCallPayload[]) => prev.filter((p: ToolCallPayload) => p.id !== id));
           store.updateToolCallError(id, tool, error);
           return;
         }
@@ -418,29 +586,68 @@ export const sendAgentPrompt = async (options: SendAgentPromptOptions): Promise<
           return;
         }
 
+        if (packet.channel === CHANNEL_AGENT_STREAM && packet.type === 'preview_ready') {
+          const payload = packet.payload || {};
+          const liveUrl = payload.url || (payload.port ? `http://localhost:${payload.port}` : null);
+          const chatId = payload.chatId || payload.sessionId;
+          if (liveUrl) {
+            useIDEStore.getState().setPreviewUrl(liveUrl, chatId);
+          }
+          return;
+        }
+
+        if (packet.channel === CHANNEL_AGENT_STREAM && packet.type === 'artifact_update') {
+          // Artifacts are stored server-side; this refresh signal lets the panel
+          // update immediately instead of waiting for its polling interval.
+          store.triggerFileTreeRefresh();
+          return;
+        }
+
         if (packet.channel === CHANNEL_AGENT_STREAM && packet.type === 'chunk') {
           const chunk = packet.payload;
           if (chunk.thinking) {
-            store.updateAgentThinking(chunk.thinking);
+            if (chunk.resetThinking) {
+              flushStreamBuffer();
+              store.updateAgentThinking(chunk.thinking, false);
+            } else {
+              pendingThinking += chunk.thinking;
+              scheduleFlush();
+            }
           }
           if (chunk.retryEvent) {
             useIDEStore.getState().addRetryEvent(chunk.retryEvent);
           }
           if (chunk.resetContent) {
-            useIDEStore.getState().resetLastMessageContent();
+            // Seamless model retry/switch — keep transcript clean without noisy banners
           }
           if (chunk.delta) {
-            store.updateLastMessageContent(chunk.delta);
+            pendingDelta += chunk.delta;
+            scheduleFlush();
           }
           if (chunk.toolCalls && chunk.toolCalls.length > 0) {
+            flushStreamBuffer();
             store.addToolCallsToLastMessage(chunk.toolCalls);
             for (const tc of chunk.toolCalls) {
               store.updateLastMessageContent(`\n<!-- TOOL_CALL:${tc.id} -->\n`);
             }
           }
           if (chunk.done) {
+            flushStreamBuffer();
+            activeStreamFlush = null;
+            const thinkingTrace = useIDEStore.getState().currentAgentThinking;
+            if (thinkingTrace && thinkingTrace.trim()) {
+              const msgs = useIDEStore.getState().agentMessages;
+              const lastIdx = msgs.length - 1;
+              if (lastIdx >= 0 && msgs[lastIdx].role === 'assistant') {
+                const updated = { ...msgs[lastIdx], thinking: thinkingTrace };
+                useIDEStore.setState({
+                  agentMessages: [...msgs.slice(0, lastIdx), updated],
+                });
+              }
+            }
             useIDEStore.getState().setLastRunUsage(chunk.usage || null);
             useIDEStore.getState().setIsAgentGenerating(false);
+            useIDEStore.getState().updateAgentThinking('');
             // A finished run can no longer be waiting on ask_user
             if (useIDEStore.getState().pendingAgentQuestion) {
               useIDEStore.getState().setPendingAgentQuestion(null);
@@ -457,13 +664,20 @@ export const sendAgentPrompt = async (options: SendAgentPromptOptions): Promise<
     let sawTransportError = false;
 
     ws.onerror = () => {
+      flushStreamBuffer();
+      activeStreamFlush = null;
       // Keep the socket slot until onclose fires; record the failure so close
       // reports it exactly once through the shared banner.
       if (activeSocket !== ws) return;
       sawTransportError = true;
+      // Surface the error in the reasoning panel so the user sees *why* the
+      // stream stopped — the previous code path dropped this on the floor.
+      useIDEStore.getState().setLastThinkingError('Stream transport error — the socket closed unexpectedly. Check your network and retry.');
     };
 
     ws.onclose = () => {
+      flushStreamBuffer();
+      activeStreamFlush = null;
       const wasActive = activeSocket === ws;
       if (wasActive) activeSocket = null;
       useIDEStore.getState().setIsAgentGenerating(false);

@@ -9,6 +9,16 @@ import type Database from 'better-sqlite3';
 
 export type AgentRunStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
+export type FailureCategory =
+  | 'PROMPT_FAILURE'
+  | 'CONTEXT_FAILURE'
+  | 'TOOL_SELECTION_FAILURE'
+  | 'TOOL_EXECUTION_FAILURE'
+  | 'EDIT_FAILURE'
+  | 'VERIFICATION_FAILURE'
+  | 'LOOP_FAILURE'
+  | 'USER_CANCELLED';
+
 export interface AgentRunRecord {
   id: string;
   startedAt: number;
@@ -21,6 +31,7 @@ export interface AgentRunRecord {
   filesMutated: number;
   /** null when no verification stage ran (no mutations, or aborted before it). */
   verificationPassed: boolean | null;
+  failureCategory?: FailureCategory | null;
 }
 
 export interface RunEventRecord {
@@ -46,7 +57,8 @@ export function initRunLog(database: Database.Database): void {
       permission_mode TEXT NOT NULL,
       prompt_preview TEXT NOT NULL DEFAULT '',
       files_mutated INTEGER NOT NULL DEFAULT 0,
-      verification_passed INTEGER
+      verification_passed INTEGER,
+      failure_category TEXT
     );
 
     CREATE TABLE IF NOT EXISTS run_events (
@@ -61,6 +73,12 @@ export function initRunLog(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_runs_started ON agent_runs(started_at DESC);
     CREATE INDEX IF NOT EXISTS idx_run_events_run ON run_events(run_id);
   `);
+
+  try {
+    db.exec(`ALTER TABLE agent_runs ADD COLUMN failure_category TEXT;`);
+  } catch {
+    // Column already exists
+  }
 }
 
 function requireDb(): Database.Database {
@@ -102,7 +120,7 @@ export function recordEvent(runId: string, type: string, payload?: unknown): voi
 export function finishRun(
   runId: string,
   status: Exclude<AgentRunStatus, 'running'>,
-  data?: { filesMutated?: number; verificationPassed?: boolean | null }
+  data?: { filesMutated?: number; verificationPassed?: boolean | null; failureCategory?: FailureCategory | null }
 ): void {
   const database = requireDb();
   // Only a concrete boolean patches the column — undefined AND null both mean
@@ -111,18 +129,20 @@ export function finishRun(
     data?.verificationPassed === true || data?.verificationPassed === false
       ? Number(data.verificationPassed)
       : null;
+  const failureCategoryPatch = data?.failureCategory ?? null;
   const result = database
     .prepare(
       `UPDATE agent_runs
        SET finished_at = ?, status = ?,
            files_mutated = COALESCE(?, files_mutated),
-           verification_passed = COALESCE(?, verification_passed)
+           verification_passed = COALESCE(?, verification_passed),
+           failure_category = COALESCE(?, failure_category)
        WHERE id = ? AND status = 'running'`
     )
-    .run(Date.now(), status, data?.filesMutated ?? null, verificationPatch, runId);
+    .run(Date.now(), status, data?.filesMutated ?? null, verificationPatch, failureCategoryPatch, runId);
   // Only the first finish transitions the row — later calls must not emit events.
   if (result.changes > 0) {
-    recordEvent(runId, 'RunEnded', { status });
+    recordEvent(runId, 'RunEnded', { status, failureCategory: failureCategoryPatch });
   }
 }
 
@@ -171,5 +191,6 @@ function rowToRecord(row: any): AgentRunRecord {
     promptPreview: row.prompt_preview,
     filesMutated: row.files_mutated,
     verificationPassed: row.verification_passed === null || row.verification_passed === undefined ? null : Boolean(row.verification_passed),
+    failureCategory: row.failure_category ?? null,
   };
 }

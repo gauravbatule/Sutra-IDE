@@ -1,4 +1,5 @@
 import { ModelRouter } from './modelRouter.js';
+import { resilientFetch } from './tlsFetch.js';
 
 export interface CompletionRequest {
   prefix: string;
@@ -306,7 +307,7 @@ ${req.suffix.slice(0, 500)}
       if (apiKey && apiKey.trim().length > 0) {
         headers['Authorization'] = `Bearer ${apiKey}`;
       }
-      const res = await fetch(url, {
+      const res = await resilientFetch(url, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -338,7 +339,7 @@ ${req.suffix.slice(0, 500)}
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await resilientFetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

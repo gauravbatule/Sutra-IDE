@@ -8,6 +8,7 @@
     "desktop/main.cjs",
     "desktop/sutra.ico",
     "dist/**/*",
+    "dist-server/**/*",
     "server/**/*",
     "scripts/**/*",
     "public/**/*",

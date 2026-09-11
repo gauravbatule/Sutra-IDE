@@ -72,7 +72,7 @@ export const SearchPanel: React.FC = () => {
           Workspace Search
         </span>
         {results.length > 0 && (
-          <span className="text-[10px] font-mono text-obsidian-inkMuted bg-white/[0.04] px-1.5 py-0.5 rounded">
+          <span className="text-[10px] font-mono text-obsidian-inkMuted bg-obsidian-surface1 px-1.5 py-0.5 rounded">
             {results.length} matches
           </span>
         )}
@@ -137,17 +137,17 @@ export const SearchPanel: React.FC = () => {
         )}
 
         {Object.entries(groupedResults).map(([file, items]) => (
-          <div key={file} className="border border-white/[0.05] rounded-md overflow-hidden bg-obsidian-surface2/30">
+          <div key={file} className="border border-obsidian-hairline rounded-md overflow-hidden bg-obsidian-surface2/30">
             {/* File Group Header */}
             <button
               onClick={() => openFilePath(file)}
-              className="w-full px-2.5 py-1.5 bg-obsidian-surface2/80 hover:bg-white/[0.08] flex items-center justify-between text-left transition-colors border-b border-white/[0.04]"
+              className="w-full px-2.5 py-1.5 bg-obsidian-surface2/80 hover:bg-obsidian-surface2 flex items-center justify-between text-left transition-colors border-b border-obsidian-hairline"
             >
               <div className="flex items-center gap-1.5 min-w-0">
                 <FileCode className="w-3.5 h-3.5 text-obsidian-accent shrink-0" />
                 <span className="text-[11px] font-semibold text-obsidian-inkPrimary truncate">{file}</span>
               </div>
-              <span className="text-[9px] text-obsidian-inkMuted shrink-0 bg-black/30 px-1.5 py-0.5 rounded">
+              <span className="text-[9px] text-obsidian-inkMuted shrink-0 bg-obsidian-surface2 px-1.5 py-0.5 rounded">
                 {items.length}
               </span>
             </button>
@@ -157,8 +157,8 @@ export const SearchPanel: React.FC = () => {
               {items.map((item, idx) => (
                 <button
                   key={idx}
-                  onClick={() => openFilePath(item.file)}
-                  className="w-full px-3 py-1.5 hover:bg-white/[0.06] flex items-start gap-2 text-left transition-colors group"
+                  onClick={() => openFilePath(`${item.file}:${item.line}`)}
+                  className="w-full px-3 py-1.5 hover:bg-obsidian-surface2 flex items-start gap-2 text-left transition-colors group"
                 >
                   <span className="text-[10px] text-obsidian-inkMuted shrink-0 w-6 text-right">
                     {item.line}

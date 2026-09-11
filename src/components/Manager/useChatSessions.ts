@@ -1,57 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ChatSessionSummary,
+  UseChatSessionsResult,
+  useChatSessionsStore,
+} from '../../stores/sessionsStore.js';
 
-export interface ChatSessionSummary {
-  id: string;
-  title?: string;
-  updated_at?: string;
-  created_at?: string;
-  message_count?: number;
-}
-
-interface UseChatSessionsResult {
-  sessions: ChatSessionSummary[];
-  isLoading: boolean;
-  error: string | null;
-  refresh: () => void;
-}
+export type { ChatSessionSummary, UseChatSessionsResult };
 
 /**
- * Loads conversation summaries from GET /api/chat/sessions.
- * Response shape: { success: boolean, sessions: Array } — see server/index.ts.
+ * Loads conversation summaries from the shared sessions store (zero-flicker).
  */
 export const useChatSessions = (): UseChatSessionsResult => {
-  const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const reloadTick = useRef(0);
-
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/chat/sessions');
-      if (!res.ok) {
-        throw new Error(`Could not load conversations (${res.status})`);
-      }
-      const data = await res.json();
-      setSessions(Array.isArray(data.sessions) ? data.sessions : []);
-    } catch (err: any) {
-      setError(err?.message || 'Could not load conversations');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const refresh = useCallback(() => {
-    reloadTick.current += 1;
-    load();
-  }, [load]);
-
-  return { sessions, isLoading, error, refresh };
+  return useChatSessionsStore();
 };
 
 /** Compact relative timestamp like "2m ago", "Yesterday", "Mar 12". */

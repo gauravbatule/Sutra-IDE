@@ -119,6 +119,17 @@ export class PTYManager {
     child: any;
   }> = new Map();
 
+  private completedProcesses: Map<string, {
+    id: string;
+    pid: number;
+    command: string;
+    name: string;
+    startTime: number;
+    endTime: number;
+    exitCode: number | null;
+    logs: string[];
+  }> = new Map();
+
   /**
    * Spawns a resilient background process, waits for initial startup verification, and captures streaming logs.
    */
@@ -138,9 +149,9 @@ export class PTYManager {
     const taskId = `task-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const effectiveName = name || command.slice(0, 30);
     const isWindows = process.platform === 'win32';
-    const shell = isWindows ? 'powershell.exe' : 'bash';
+    const shell = isWindows ? 'cmd.exe' : 'bash';
     const args = isWindows 
-      ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', `$ProgressPreference = 'SilentlyContinue'; ${command}`]
+      ? ['/d', '/s', '/c', command]
       : ['-c', command];
 
     const effectiveCwd = cwd ? SecurityGuardrails.validateSafePath(cwd, this.workspaceRoot) : this.workspaceRoot;
@@ -177,11 +188,39 @@ export class PTYManager {
     child.on('close', (code) => {
       appendLog(`[Process Exited with code ${code}]`);
       this.backgroundProcesses.delete(taskId);
+      this.completedProcesses.set(taskId, {
+        id: taskId,
+        pid: taskEntry.pid,
+        command: taskEntry.command,
+        name: taskEntry.name,
+        startTime: taskEntry.startTime,
+        endTime: Date.now(),
+        exitCode: code,
+        logs: [...logs],
+      });
+      if (this.completedProcesses.size > 50) {
+        const oldestKey = this.completedProcesses.keys().next().value;
+        if (oldestKey) this.completedProcesses.delete(oldestKey);
+      }
     });
 
     child.on('error', (err) => {
       appendLog(`[Process Error: ${err.message}]`);
       this.backgroundProcesses.delete(taskId);
+      this.completedProcesses.set(taskId, {
+        id: taskId,
+        pid: taskEntry.pid,
+        command: taskEntry.command,
+        name: taskEntry.name,
+        startTime: taskEntry.startTime,
+        endTime: Date.now(),
+        exitCode: -1,
+        logs: [...logs],
+      });
+      if (this.completedProcesses.size > 50) {
+        const oldestKey = this.completedProcesses.keys().next().value;
+        if (oldestKey) this.completedProcesses.delete(oldestKey);
+      }
     });
 
     // Wait waitMsBeforeAsync to verify successful boot and capture startup banners/port output
@@ -220,15 +259,26 @@ export class PTYManager {
     const proc = this.backgroundProcesses.get(processId) || 
       Array.from(this.backgroundProcesses.values()).find((p) => p.name === processId || p.pid.toString() === processId);
 
-    if (!proc) {
-      return { id: processId, logs: `Process ${processId} not found or has already terminated.`, isRunning: false };
+    if (proc) {
+      return {
+        id: proc.id,
+        logs: proc.logs.slice(-maxLines).join('\n'),
+        isRunning: true,
+      };
     }
 
-    return {
-      id: proc.id,
-      logs: proc.logs.slice(-maxLines).join('\n'),
-      isRunning: true,
-    };
+    const completed = this.completedProcesses.get(processId) ||
+      Array.from(this.completedProcesses.values()).find((p) => p.name === processId || p.pid.toString() === processId);
+
+    if (completed) {
+      return {
+        id: completed.id,
+        logs: completed.logs.slice(-maxLines).join('\n'),
+        isRunning: false,
+      };
+    }
+
+    return { id: processId, logs: `Process ${processId} not found or has already terminated.`, isRunning: false };
   }
 
   public killProcess(processId: string): { success: boolean; message: string } {
@@ -236,21 +286,7 @@ export class PTYManager {
       Array.from(this.backgroundProcesses.values()).find((p) => p.name === processId || p.pid.toString() === processId);
 
     if (!proc) {
-      // Also try system-level PID kill
-      const numericPid = parseInt(processId, 10);
-      if (!isNaN(numericPid) && numericPid > 0) {
-        try {
-          if (process.platform === 'win32') {
-            spawn('taskkill', ['/pid', numericPid.toString(), '/f', '/t']);
-          } else {
-            process.kill(numericPid, 'SIGKILL');
-          }
-          return { success: true, message: `Terminated system process with PID ${numericPid}.` };
-        } catch (e: any) {
-          return { success: false, message: `Failed to terminate PID ${numericPid}: ${e.message}` };
-        }
-      }
-      return { success: false, message: `Background task "${processId}" is not currently running.` };
+      return { success: false, message: `Background task "${processId}" is not currently running or managed by PTYManager.` };
     }
 
     try {
@@ -303,7 +339,7 @@ export class PTYManager {
       const isWindows = process.platform === 'win32';
       const shell = isWindows ? 'powershell.exe' : 'bash';
       const args = isWindows 
-        ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', `$ProgressPreference = 'SilentlyContinue'; ${command}`] 
+        ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', `$ProgressPreference = 'SilentlyContinue'; ${command}; if (-not $?) { if ($LASTEXITCODE -ne $null -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE } else { exit 1 } }`] 
         : ['-c', command];
 
       const effectiveCwd = cwd ? SecurityGuardrails.validateSafePath(cwd, this.workspaceRoot) : this.workspaceRoot;
