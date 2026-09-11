@@ -1,0 +1,1 @@
+This is alpha.txt. It serves as the primary entry point document for project documentation and initial setup notes.

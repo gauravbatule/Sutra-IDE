@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Vendored third-party gateway (full external project, restored separately)
+vendor/
+
+# Independent sibling project with its own repository
+website-next/
+
+# Build output
+dist/
+dist-exe/
+release/
+*.exe
+
+# Next.js sites
+.next/
+out/
+
+# Runtime databases
+sutra.db
+sutra.db-shm
+sutra.db-wal
+*.sqlite
+*.sqlite-journal
+
+# Runtime state
+.sandbox/
+.sutra/
+*.log
+
+# Local env & secrets
+.env
+.env.local
+
+# OS noise
+Thumbs.db
+Desktop.ini
+
+# Editor-local Claude settings
+.claude/settings.local.json
+
+# Tauri build artifacts
+src-tauri/target/

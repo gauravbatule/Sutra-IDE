@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Brew Haven – Specialty Coffee</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script defer src="/js/script.js"></script>
+</head>
+<body>
+  <!-- Sticky Navigation -->
+  <header class="navbar" id="navbar">
+    <div class="container">
+      <a href="#" class="logo">Brew Haven</a>
+      <nav class="nav-links" id="nav-links">
+        <a href="#hero">Home</a>
+        <a href="#about">About</a>
+        <a href="#menu">Menu</a>
+        <a href="#gallery">Gallery</a>
+        <a href="#testimonials">Testimonials</a>
+        <a href="#contact">Contact</a>
+      </nav>
+      <button class="hamburger" id="hamburger" aria-label="Toggle menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section id="hero" class="section hero">
+    <div class="hero-content">
+      <h1>Welcome to Brew Haven</h1>
+      <p>Experience the finest specialty coffee crafted with passion.</p>
+      <a href="#menu" class="btn-primary">Explore Menu</a>
+    </div>
+    <img src="/assets/images/hero.jpg" alt="Premium coffee cup" class="hero-image" loading="lazy">
+  </section>
+
+  <!-- About Section -->
+  <section id="about" class="section about">
+    <h2>About Us</h2>
+    <p>At Brew Haven, we source beans from sustainable farms, roast them to perfection, and serve them with love. Our commitment to quality and community makes every cup unforgettable.</p>
+  </section>
+
+  <!-- Menu Section -->
+  <section id="menu" class="section menu">
+    <h2>Our Menu</h2>
+    <div class="menu-items">
+      <div class="menu-item">
+        <h3>Espresso</h3>
+        <p class="price">$3.00</p>
+      </div>
+      <div class="menu-item">
+        <h3>Americano</h3>
+        <p class="price">$3.50</p>
+      </div>
+      <div class="menu-item">
+        <h3>Latte</h3>
+        <p class="price">$4.25</p>
+      </div>
+      <div class="menu-item">
+        <h3>Cappuccino</h3>
+        <p class="price">$4.00</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Gallery Section -->
+  <section id="gallery" class="section gallery">
+    <h2>Gallery</h2>
+    <div class="gallery-grid">
+      <img src="/assets/images/gallery1.jpg" alt="Roasted coffee beans" loading="lazy">
+      <img src="/assets/images/gallery2.jpg" alt="Latte art" loading="lazy">
+      <img src="/assets/images/gallery3.jpg" alt="Coffee shop interior" loading="lazy">
+    </div>
+  </section>
+
+  <!-- Testimonials Section -->
+  <section id="testimonials" class="section testimonials">
+    <h2>What Our Customers Say</h2>
+    <blockquote>
+      <p>"The aroma alone transports me to a world of comfort. Every sip is a revelation."</p>
+      <cite>— Maya L.</cite>
+    </blockquote>
+    <blockquote>
+      <p>"Their commitment to sustainability is evident in every cup. Truly a premium experience."</p>
+      <cite>— James R.</cite>
+    </blockquote>
+  </section>
+
+  <!-- FAQ Section -->
+  <section id="faq" class="section faq">
+    <h2>Frequently Asked Questions</h2>
+    <div class="accordion">
+      <div class="accordion-item">
+        <button class="accordion-header">What types of coffee do you offer?</button>
+        <div class="accordion-content">
+          <p>We offer a curated selection of single-origin beans, blends, and seasonal roasts.</p>
+        </div>
+      </div>
+      <div class="accordion-item">
+        <button class="accordion-header">Do you have vegan options?</button>
+        <div class="accordion-content">
+          <p>Yes, all our drinks are vegan-friendly. We also provide plant-based milk alternatives.</p>
+        </div>
+      </div>
+      <div class="accordion-item">
+        <button class="accordion-header">Can I order online for pickup?</button>
+        <div class="accordion-content">
+          <p>Absolutely! Use our online ordering system to reserve your favorite drinks for pickup.</p>
+        </div>
+      </div>
+      <div class="accordion-item">
+        <button class="accordion-header">What is your refund policy?</button>
+        <div class="accordion-content">
+          <p>All purchases are final. However, we offer a satisfaction guarantee and will address any concerns promptly.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Contact Section -->
+  <section id="contact" class="section contact">
+    <h2>Contact Us</h2>
+    <form id="contact-form" novalidate>
+      <div class="form-group">
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" required>
+      </div>
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required>
+      </div>
+      <div class="form-group">
+        <label for="message">Message</label>
+        <textarea id="message" name="message" rows="5" required></textarea>
+      </div>
+      <button type="submit" class="btn-primary">Send Message</button>
+      <p id="form-feedback" class="feedback"></p>
+    </form>
+  </section>
+
+  <footer class="footer">
+    <p>&copy; 2026 Brew Haven. All rights reserved.</p>
+  </footer>
+  <section id="testimonials" class="section testimonials">
+    <h2>What Our Customers Say</h2>
+    <blockquote>
+      <p>"The aroma alone transports me to a world of comfort. Every sip is a revelation."</p>
+      <cite>— Maya L.</cite>
+    </blockquote>
+    <blockquote>
+      <p>"Their commitment to sustainability is evident in every cup. Truly a premium experience."</p>
+      <cite>— James R.</cite>
+    </blockquote>
+  </section>
+
+  <!-- Contact Section -->
+  <section id="contact" class="section contact">
+    <h2>Contact Us</h2>
+    <form id="contact-form" novalidate>
+      <div class="form-group">
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" required>
+      </div>
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required>
+      </div>
+      <div class="form-group">
+        <label for="message">Message</label>
+        <textarea id="message" name="message" rows="5" required></textarea>
+      </div>
+      <button type="submit" class="btn-primary">Send Message</button>
+      <p id="form-feedback" class="feedback"></p>
+    </form>
+  </section>
+
+  <footer class="footer">
+    <p>&copy; 2026 Brew Haven. All rights reserved.</p>
+  </footer>
+</body>
+</html>

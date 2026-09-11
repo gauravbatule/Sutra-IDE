@@ -1,0 +1,60 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bwShine" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="50%" stop-color="#E4E4E7" />
+      <stop offset="100%" stop-color="#A1A1AA" />
+    </linearGradient>
+    <linearGradient id="bwDarkBase" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#121214" />
+      <stop offset="100%" stop-color="#09090B" />
+    </linearGradient>
+    <filter id="subtleGaze" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Deep Obsidian Base Squircle -->
+  <rect x="16" y="16" width="480" height="480" rx="120" fill="url(#bwDarkBase)" stroke="#27272A" stroke-width="2.5" />
+  
+  <!-- 1px Precision Hairline Inset Rule -->
+  <rect x="26" y="26" width="460" height="460" rx="110" fill="none" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1" />
+
+  <!-- SUTRA Interconnected Sacred Geometry (Sutra Thread + Precision Core) -->
+  <g filter="url(#subtleGaze)">
+    <!-- Architectural Diamond Frame -->
+    <path d="M256 80 L392 166 L392 346 L256 432 L120 346 L120 166 Z" 
+          stroke="#3F3F46" 
+          stroke-width="3" 
+          stroke-dasharray="6 6"
+          fill="none" />
+
+    <!-- Outer Precision Geometry Contour -->
+    <path d="M256 104 L372 178 L372 334 L256 408 L140 334 L140 178 Z" 
+          stroke="#52525B" 
+          stroke-width="6" 
+          stroke-linejoin="round" 
+          fill="none" />
+
+    <!-- Pure White SUTRA Thread (Continuous Infinity S) -->
+    <path d="M184 196 C184 140 328 140 328 224 C328 308 184 288 184 352 C184 408 328 408 328 352" 
+          stroke="url(#bwShine)" 
+          stroke-width="18" 
+          stroke-linecap="round" 
+          fill="none" />
+
+    <!-- Mathematical Quantum Center Ring -->
+    <circle cx="256" cy="256" r="38" stroke="#FFFFFF" stroke-width="5" fill="#09090B" />
+    <circle cx="256" cy="256" r="16" fill="#FFFFFF" />
+
+    <!-- Precision Laser Cardinal Ticks -->
+    <line x1="256" y1="52" x2="256" y2="76" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" />
+    <line x1="256" y1="436" x2="256" y2="460" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" />
+    <line x1="92" y1="256" x2="116" y2="256" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" />
+    <line x1="396" y1="256" x2="420" y2="256" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" />
+  </g>
+</svg>

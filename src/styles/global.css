@@ -1,0 +1,141 @@
+@import './tokens.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-canvas);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  letter-spacing: -0.012em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Calm elevated surfaces: depth comes from spacing and hairlines, not neon glow */
+.glass-panel {
+  background: rgba(21, 22, 28, 0.94);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--hairline);
+}
+
+.glass-dropdown {
+  background: rgba(27, 28, 35, 0.98);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--hairline-light);
+  box-shadow: 0 16px 32px -12px rgba(0, 0, 0, 0.58);
+}
+
+.hairline-border {
+  box-shadow: 0 0 0 1px var(--hairline);
+}
+
+.hairline-b {
+  border-bottom: 1px solid var(--hairline);
+}
+
+.hairline-t {
+  border-top: 1px solid var(--hairline);
+}
+
+.hairline-r {
+  border-right: 1px solid var(--hairline);
+}
+
+.hairline-l {
+  border-left: 1px solid var(--hairline);
+}
+
+/* Subtle Ambient Glow */
+.ambient-glow {
+  background: radial-gradient(circle at 50% 0%, rgba(139, 156, 255, 0.08) 0%, transparent 70%);
+}
+
+.ambient-glow-purple {
+  background: radial-gradient(circle at 50% 0%, rgba(139, 156, 255, 0.05) 0%, transparent 70%);
+}
+
+/* Sleek Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.13);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+/* Focus and input resets */
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent-blue), 0 0 0 3px var(--accent-glow);
+}
+
+.code-font {
+  font-family: var(--font-mono);
+}
+
+/* Clean Obsidian Checkbox */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--hairline-light, rgba(255, 255, 255, 0.2));
+  background-color: var(--bg-surface-2, #18191e);
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  transition: all 0.15s ease;
+  vertical-align: middle;
+}
+
+input[type="checkbox"]:checked {
+  background-color: var(--ink-primary, #ffffff);
+  border-color: var(--ink-primary, #ffffff);
+}
+
+input[type="checkbox"]:checked::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  transform: scale(0.9);
+  background-color: var(--bg-canvas, #000000);
+}
+
+input[type="checkbox"]:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
+}
+
+/* Subtle Shimmer Animation */
+@keyframes subtle-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.02); }
+}
+
+.animate-subtle-pulse {
+  animation: subtle-pulse 3s infinite ease-in-out;
+}

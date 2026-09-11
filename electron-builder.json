@@ -1,0 +1,46 @@
+{
+  "appId": "com.sutra.ide",
+  "productName": "SUTRA IDE",
+  "directories": {
+    "output": "dist-exe/native"
+  },
+  "files": [
+    "desktop/main.cjs",
+    "desktop/sutra.ico",
+    "dist/**/*",
+    "server/**/*",
+    "scripts/**/*",
+    "public/**/*",
+    "package.json",
+    "node_modules/tsx/**",
+    "node_modules/esbuild/**",
+    "node_modules/@esbuild/**",
+    "node_modules/get-tsconfig/**",
+    "node_modules/resolve-pkg-maps/**"
+  ],
+  "npmRebuild": false,
+  "asar": false,
+  "asarUnpack": [
+    "**/node-pty/**",
+    "**/better-sqlite3/**"
+  ],
+  "win": {
+    "icon": "desktop/sutra.ico",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "SUTRA IDE",
+    "artifactName": "SUTRA-IDE-Setup-${version}.exe"
+  }
+}
