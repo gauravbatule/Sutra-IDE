@@ -27,6 +27,7 @@ import {
   Settings
 } from 'lucide-react';
 import { useIDEStore } from '../../stores/ideStore.js';
+import { deriveAgentStatus } from '../../utils/agentStatus.js';
 import {
   appendUserMessageDeduped,
   clearConnectionLost,
@@ -170,6 +171,11 @@ export const AgentChat: React.FC = () => {
 
   const [inputPrompt, setInputPrompt] = useState('');
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
+  const agentStatus = deriveAgentStatus({
+    isGenerating: isAgentGenerating,
+    hasPendingQuestion: Boolean(pendingAgentQuestion),
+    hasPendingApprovals: pendingApprovals.length > 0,
+  });
   // Collapsed by default: a stable single-line trace while streaming instead of a growing block
   const [isThinkingExpanded, setIsThinkingExpanded] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -1026,15 +1032,18 @@ export const AgentChat: React.FC = () => {
           <ConnectionLostBanner onRetry={handleRetryLastPrompt} />
         )}
 
-        {/* Single quiet status row while the agent works — the only loader on this surface */}
-        {isAgentGenerating && (
+        {/* Single quiet status row while Astra works or waits — the only loader on this surface */}
+        {agentStatus.key !== 'idle' && (
           <div
             role="status"
             aria-live="polite"
+            title={agentStatus.detail}
             className="px-2.5 h-8 flex items-center gap-2 rounded-xl bg-obsidian-surface1 border border-obsidian-hairline text-obsidian-inkSecondary text-[11px]"
           >
-            <Loader2 className="w-3 h-3 animate-spin shrink-0 text-obsidian-inkPrimary" />
-            <span>Astra is working</span>
+            {agentStatus.key === 'working' && (
+              <Loader2 className="w-3 h-3 animate-spin shrink-0 text-obsidian-inkPrimary" />
+            )}
+            <span>{agentStatus.label}</span>
           </div>
         )}
 

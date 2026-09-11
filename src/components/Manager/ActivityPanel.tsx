@@ -21,6 +21,7 @@ import {
 import { useIDEStore } from '../../stores/ideStore.js';
 import { ToolCallPayload } from '../../types/ide.js';
 import { MarkdownRenderer } from '../Agent/MarkdownRenderer.js';
+import { deriveAgentStatus } from '../../utils/agentStatus.js';
 
 const FILE_TOOLS = ['write_file', 'edit_file', 'delete_file'];
 const ARTIFACT_TOOLS = ['generate_image_asset', 'generate_svg_asset', 'generate_video_asset', 'generate_audio_asset'];
@@ -299,17 +300,33 @@ export const ActivityPanel: React.FC = () => {
     backgroundTasks.length > 0 ? String(backgroundTasks[backgroundTasks.length - 1].params?.command || '') : '';
 
   const assistantRounds = agentMessages.filter((m) => m.role === 'assistant' && m.id !== 'msg-welcome').length;
-  const statusLabel = pendingAgentQuestion
-    ? 'Astra is waiting for your answer'
-    : isAgentGenerating
-      ? 'Astra is working'
-      : 'Idle';
+  const pendingApprovals = useIDEStore((s) => s.pendingApprovals);
+  const agentStatus = deriveAgentStatus({
+    isGenerating: isAgentGenerating,
+    hasPendingQuestion: Boolean(pendingAgentQuestion),
+    hasPendingApprovals: pendingApprovals.length > 0,
+  });
   const visibleArtifacts = showAllArtifacts ? artifacts : artifacts.slice(0, VISIBLE_ARTIFACTS);
-  const statusTone: 'idle' | 'active' | 'attention' = pendingAgentQuestion
-    ? 'attention'
-    : isAgentGenerating
-      ? 'active'
-      : 'idle';
+  const statusTone: 'idle' | 'active' | 'attention' =
+    agentStatus.key === 'waiting' ? 'attention' : agentStatus.key === 'working' ? 'active' : 'idle';
+
+  // Recent run history from the durable audit log — refreshed when a run ends.
+  interface RunRow {
+    id: string;
+    startedAt: number;
+    status: string;
+    promptPreview: string;
+    filesMutated: number;
+    verificationPassed: boolean | null;
+  }
+  const [recentRuns, setRecentRuns] = useState<RunRow[]>([]);
+  useEffect(() => {
+    if (isAgentGenerating) return; // Refresh on run completion, not mid-run
+    fetch('/api/runs?limit=6')
+      .then((r) => r.json())
+      .then((d) => setRecentRuns(Array.isArray(d.runs) ? d.runs : []))
+      .catch(() => undefined);
+  }, [isAgentGenerating]);
 
   if (collapsed) {
     return (
@@ -356,7 +373,7 @@ export const ActivityPanel: React.FC = () => {
           <div className="rounded-lg border border-obsidian-hairline bg-obsidian-surface2 p-2.5 space-y-1.5">
             <div className="flex items-center gap-2">
               <StatusDot tone={statusTone} />
-              <span className="text-xs text-obsidian-inkPrimary">{statusLabel}</span>
+              <span className="text-xs text-obsidian-inkPrimary">{agentStatus.label}</span>
             </div>
             <div className="flex items-center justify-between text-[11px]">
               <span className="font-mono uppercase tracking-wider text-[10px] text-obsidian-inkMuted">Model</span>
@@ -385,6 +402,42 @@ export const ActivityPanel: React.FC = () => {
             )}
           </div>
         </CollapsibleSection>
+
+        {/* Recent run history from the durable audit log */}
+        {recentRuns.length > 0 && (
+          <CollapsibleSection title="Recent Runs" count={recentRuns.length}>
+            {recentRuns.map((run) => (
+              <div
+                key={run.id}
+                className="px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors duration-150"
+                title={`${run.promptPreview || 'Empty prompt'} — ${run.status}`}
+              >
+                <div className="flex items-center gap-2">
+                  <StatusDot
+                    tone={run.status === 'failed' ? 'failed' : run.status === 'running' ? 'active' : 'idle'}
+                  />
+                  <span className="flex-1 min-w-0 truncate text-[11px] text-obsidian-inkSecondary">
+                    {run.promptPreview.split('\n')[0].slice(0, 60) || 'Empty prompt'}
+                  </span>
+                  {run.verificationPassed !== null && (
+                    <CheckCircle2
+                      className={`w-3 h-3 shrink-0 ${
+                        run.verificationPassed ? 'text-emerald-400/80' : 'text-red-400'
+                      }`}
+                      aria-label={run.verificationPassed ? 'Verification passed' : 'Verification failed'}
+                    />
+                  )}
+                </div>
+                <div className="text-[9px] font-mono text-obsidian-inkMuted pl-3.5">
+                  {new Date(run.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {' · '}
+                  {run.status}
+                  {run.filesMutated > 0 ? ` · ${run.filesMutated} file${run.filesMutated > 1 ? 's' : ''}` : ''}
+                </div>
+              </div>
+            ))}
+          </CollapsibleSection>
+        )}
 
         {/* Provider retries + failovers for the current run */}
         <CollapsibleSection title="Network" count={retryLog.length}>

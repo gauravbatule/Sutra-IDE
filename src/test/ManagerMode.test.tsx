@@ -471,7 +471,7 @@ describe('ActivityPanel', () => {
   it('renders every section with its empty state while idle', () => {
     render(<ActivityPanel />);
 
-    expect(screen.getByText('Idle')).toBeInTheDocument();
+    expect(screen.getByText('Ready')).toBeInTheDocument();
     expect(screen.getByText('No files changed yet')).toBeInTheDocument();
     expect(screen.getByText('No artifacts yet')).toBeInTheDocument();
     expect(screen.getByText('No background tasks yet')).toBeInTheDocument();
