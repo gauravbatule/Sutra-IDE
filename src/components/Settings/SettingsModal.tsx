@@ -46,8 +46,8 @@ interface ProviderCatalogItem {
   savedAuthType?: string;
   hasApiKey?: boolean;
   hasCookie?: boolean;
-  savedApiKey?: string;
-  savedCookieData?: string;
+  savedApiKeyPreview?: string | null;
+  savedCookiePreview?: string | null;
   savedBaseUrl?: string;
   status?: string;
 }
@@ -300,21 +300,16 @@ export const SettingsModal: React.FC<{ isOpen: boolean; onClose: () => void }> =
       if (data.providers) {
         setProviders(data.providers);
 
-        // Pre-populate input state from saved credentials
-        const newKeys: Record<string, string> = {};
-        const newCookies: Record<string, string> = {};
+        // Secrets are never prefilled — the server only returns masked previews.
+        // Only the base URL (not a secret) hydrates the form.
         const newUrls: Record<string, string> = {};
         const newAuthModes: Record<string, 'api-key' | 'cookie' | 'oauth'> = {};
 
         for (const p of data.providers) {
-          if (p.savedApiKey) newKeys[p.id] = p.savedApiKey;
-          if (p.savedCookieData) newCookies[p.id] = p.savedCookieData;
           if (p.savedBaseUrl) newUrls[p.id] = p.savedBaseUrl;
           newAuthModes[p.id] = (p.savedAuthType as any) || (p.authTypes.includes('cookie') && !p.authTypes.includes('api-key') ? 'cookie' : 'api-key');
         }
 
-        setProviderKeys((prev) => ({ ...newKeys, ...prev }));
-        setProviderCookies((prev) => ({ ...newCookies, ...prev }));
         setProviderBaseUrls((prev) => ({ ...newUrls, ...prev }));
         setActiveAuthMode((prev) => ({ ...newAuthModes, ...prev }));
       }
@@ -374,9 +369,11 @@ export const SettingsModal: React.FC<{ isOpen: boolean; onClose: () => void }> =
   const handleSaveProvider = async (providerId: string) => {
     setSyncing(true);
     const authType = activeAuthMode[providerId] || 'api-key';
-    const apiKey = providerKeys[providerId] || '';
-    const cookieData = providerCookies[providerId] || '';
-    const baseUrl = providerBaseUrls[providerId] || '';
+    // Only send fields the user actually entered — empty/absent fields preserve
+    // what is already stored server-side (the form never sees raw secrets).
+    const apiKey = (providerKeys[providerId] || '').trim();
+    const cookieData = (providerCookies[providerId] || '').trim();
+    const baseUrl = (providerBaseUrls[providerId] || '').trim();
 
     try {
       const res = await fetch('/api/providers/save-credential', {
@@ -385,13 +382,24 @@ export const SettingsModal: React.FC<{ isOpen: boolean; onClose: () => void }> =
         body: JSON.stringify({
           providerId,
           authType,
-          apiKey,
-          cookieData,
-          baseUrl,
+          ...(apiKey ? { apiKey } : {}),
+          ...(cookieData ? { cookieData } : {}),
+          ...(baseUrl ? { baseUrl } : {}),
         }),
       });
       const data = await res.json();
       if (data.success) {
+        // Drop typed secrets from local state immediately — previews come from the catalog
+        setProviderKeys((prev) => {
+          const next = { ...prev };
+          delete next[providerId];
+          return next;
+        });
+        setProviderCookies((prev) => {
+          const next = { ...prev };
+          delete next[providerId];
+          return next;
+        });
         setStatusMessage({ text: `Saved credentials for ${providerId}`, type: 'success' });
         fetchCatalog();
       } else {
@@ -723,21 +731,32 @@ export const SettingsModal: React.FC<{ isOpen: boolean; onClose: () => void }> =
 
                         {/* MODE 1: API KEY INPUT */}
                         {currentMode === 'api-key' && (
-                          <div className="relative flex items-center">
-                            <input
-                              type={isRevealed ? 'text' : 'password'}
-                              value={currentKey}
-                              onChange={(e) => setProviderKeys({ ...providerKeys, [prov.id]: e.target.value })}
-                              placeholder={prov.placeholder || 'Paste API Key (sk-...)'}
-                              className="w-full pl-3 pr-10 py-1.5 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setRevealedKeys({ ...revealedKeys, [prov.id]: !isRevealed })}
-                              className="absolute right-2 text-obsidian-inkMuted hover:text-obsidian-inkPrimary p-1"
-                            >
-                              {isRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                            </button>
+                          <div className="space-y-1">
+                            <div className="relative flex items-center">
+                              <input
+                                type={isRevealed ? 'text' : 'password'}
+                                value={currentKey}
+                                onChange={(e) => setProviderKeys({ ...providerKeys, [prov.id]: e.target.value })}
+                                placeholder={
+                                  prov.hasApiKey
+                                    ? `Saved ${prov.savedApiKeyPreview || ''} — paste to replace`
+                                    : prov.placeholder || 'Paste API Key (sk-...)'
+                                }
+                                className="w-full pl-3 pr-10 py-1.5 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setRevealedKeys({ ...revealedKeys, [prov.id]: !isRevealed })}
+                                className="absolute right-2 text-obsidian-inkMuted hover:text-obsidian-inkPrimary p-1"
+                              >
+                                {isRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                            {currentKey.trim() !== '' && (
+                              <p className="text-[9px] font-mono text-obsidian-inkMuted px-0.5">
+                                New key replaces the saved one on Save.
+                              </p>
+                            )}
                           </div>
                         )}
 
@@ -755,10 +774,19 @@ export const SettingsModal: React.FC<{ isOpen: boolean; onClose: () => void }> =
                             <textarea
                               value={currentCookie}
                               onChange={(e) => setProviderCookies({ ...providerCookies, [prov.id]: e.target.value })}
-                              placeholder="Paste cookie line (e.g. __Secure-next-auth.session-token=eyJ...; cf_clearance=...)"
+                              placeholder={
+                                prov.hasCookie
+                                  ? `Saved ${prov.savedCookiePreview || ''} — paste to replace`
+                                  : 'Paste cookie line (e.g. __Secure-next-auth.session-token=eyJ...; cf_clearance=...)'
+                              }
                               rows={2}
                               className="w-full p-2 bg-obsidian-surface2 border border-obsidian-hairline rounded-lg text-xs font-mono text-obsidian-inkPrimary placeholder-obsidian-inkMuted focus:outline-none focus:border-obsidian-accent resize-none"
                             />
+                            {currentCookie.trim() !== '' && (
+                              <p className="text-[9px] font-mono text-obsidian-inkMuted px-0.5">
+                                New cookies replace the saved session on Save.
+                              </p>
+                            )}
                           </div>
                         )}
 

@@ -242,8 +242,11 @@ Rules:
 
   /**
    * Execute Tool with Permission Guard & "Allow All" Mode
+   *
+   * `ctx.planFilePath` scopes the write_todos plan to the conversation that owns
+   * this run — absent ctx falls back to the workspace-root task_plan.md.
    */
-  public async executeTool(toolCall: ToolCallPayload): Promise<any> {
+  public async executeTool(toolCall: ToolCallPayload, ctx?: { planFilePath?: string }): Promise<any> {
     // Auto-normalize tool name (strip any namespaces like repo_browser., fs., tools., functions.)
     const rawTool = toolCall.tool || '';
     const normalizedTool = rawTool.replace(/^(?:repo_browser|workspace|fs|tools|functions|file_system)\./i, '').trim();
@@ -821,7 +824,7 @@ Rules:
           }
           try {
             await fsTools.writeFile(
-              'task_plan.md',
+              ctx?.planFilePath || 'task_plan.md',
               normalized.map((t: any) => `- [${t.status === 'completed' ? 'x' : ' '}] (${t.status}) ${t.content}`).join('\n')
             );
           } catch {

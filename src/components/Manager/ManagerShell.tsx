@@ -240,7 +240,7 @@ export const ManagerShell: React.FC = () => {
   const handleSend = (text: string, attachment: { name: string; content: string } | null) => {
     if (!text.trim() && !attachment) return;
     const attachedContext = attachment ? `${ATTACH_MARKER}${attachment.name}]\n${attachment.content}` : null;
-    sendAgentPrompt({ text, attachedContext }).catch(() => undefined);
+    sendAgentPrompt({ text, attachedContext, chatId: sessionId }).catch(() => undefined);
   };
 
   const handleCancel = () => {

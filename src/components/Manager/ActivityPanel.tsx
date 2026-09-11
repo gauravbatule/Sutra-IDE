@@ -11,6 +11,7 @@ import {
   ListChecks,
   Palette,
   Play,
+  Plus,
   PanelRightClose,
   PanelRightOpen,
   Terminal,
@@ -547,9 +548,10 @@ export const ActivityPanel: React.FC = () => {
               onClick={() => teachMemory()}
               disabled={!memoryDraft.trim()}
               aria-label="Remember this preference"
-              className="h-7 px-2 rounded-lg bg-obsidian-surface2 border border-obsidian-hairline text-[10px] font-mono text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+              title="Remember"
+              className="h-7 w-7 shrink-0 flex items-center justify-center rounded-lg bg-obsidian-surface2 border border-obsidian-hairline text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
             >
-              Remember
+              <Plus className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
           </div>
         </CollapsibleSection>

@@ -951,6 +951,14 @@ app.get('/api/update/check', async (req, res) => {
 });
 
 // Comprehensive 159+ Provider Catalog & Multi-Auth API (API Key, Cookie Session, OAuth)
+// Raw secrets never leave the server — clients get masked previews for display only.
+function maskSecret(value: string | null | undefined): string | null {
+  if (!value || String(value).trim() === '') return null;
+  const v = String(value).trim();
+  if (v.length <= 8) return '••••••••';
+  return `${v.slice(0, 3)}…${v.slice(-4)}`;
+}
+
 app.get('/api/providers/catalog', (_req, res) => {
   const credentials = providerAuthHandler.getAllCredentials();
   const catalogWithStatus = SUTRA_ALL_PROVIDERS.map((p) => {
@@ -961,8 +969,8 @@ app.get('/api/providers/catalog', (_req, res) => {
       savedAuthType: cred?.auth_type || 'api-key',
       hasApiKey: Boolean(cred?.api_key),
       hasCookie: Boolean(cred?.cookie_data),
-      savedApiKey: cred?.api_key,
-      savedCookieData: cred?.cookie_data,
+      savedApiKeyPreview: maskSecret(cred?.api_key),
+      savedCookiePreview: maskSecret(cred?.cookie_data),
       savedBaseUrl: cred?.base_url,
       status: cred?.status || 'Not connected',
       updatedAt: cred?.updated_at,
@@ -1895,6 +1903,13 @@ wss.on('connection', (ws: WebSocket, req) => {
             const isGoalModeActive = Boolean(packet.payload.isGoalMode);
             const messages: any[] = normalizeIncomingMessages([...(packet.payload.messages || [])]);
 
+            // Per-chat working files: every conversation owns its own task plan,
+            // so two chats in one workspace never read or overwrite each other's
+            // plan. A new chat id (= new conversation) starts with a clean plan.
+            const rawChatId = typeof packet.payload.chatId === 'string' ? packet.payload.chatId : '';
+            const chatIdSafe = rawChatId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) || 'default';
+            const chatPlanPath = path.join(fsTools.getWorkspaceRoot(), '.sutra', 'chats', chatIdSafe, 'task_plan.md');
+
             // Hidden slash commands: expand shorthand intents into full instructions.
             // They never show a UI menu — typing them is the discovery.
             try {
@@ -1980,7 +1995,8 @@ wss.on('connection', (ws: WebSocket, req) => {
               round: 0,
               maxRounds: maxToolRounds,
               tokenBudget: 4800,
-              metadata: {} as Record<string, any>,
+              chatId: chatIdSafe,
+              metadata: { chatPlanPath } as Record<string, any>,
             };
 
             // Durable audit trail for this run — written through finishRun exactly once.
@@ -2005,9 +2021,8 @@ wss.on('connection', (ws: WebSocket, req) => {
               if (round === maxToolRounds - 1 && roundExtensionsUsed < 1 && !isGoalModeActive) {
                 let planOpenNow = false;
                 try {
-                  const planPath = path.join(fsTools.getWorkspaceRoot(), 'task_plan.md');
-                  if (fs.existsSync(planPath)) {
-                    planOpenNow = /- \[ \]|\(pending\)|\(in_progress\)/.test(fs.readFileSync(planPath, 'utf-8'));
+                  if (fs.existsSync(chatPlanPath)) {
+                    planOpenNow = /- \[ \]|\(pending\)|\(in_progress\)/.test(fs.readFileSync(chatPlanPath, 'utf-8'));
                   }
                 } catch {
                   // No readable plan — no extension basis
@@ -2186,9 +2201,8 @@ ${customModelsDoc}`;
                 // mid-thought — nudge it to continue instead of letting the run die.
                 let planHasOpenItems = false;
                 try {
-                  const planPath = path.join(fsTools.getWorkspaceRoot(), 'task_plan.md');
-                  if (fs.existsSync(planPath)) {
-                    const plan = fs.readFileSync(planPath, 'utf-8');
+                  if (fs.existsSync(chatPlanPath)) {
+                    const plan = fs.readFileSync(chatPlanPath, 'utf-8');
                     planHasOpenItems = /- \[ \]|\(pending\)|\(in_progress\)/.test(plan);
                   }
                 } catch {
@@ -2439,7 +2453,7 @@ ${customModelsDoc}`;
                       }));
                     }
 
-                    let result = await agentSwarm.executeTool(toolCall);
+                    let result = await agentSwarm.executeTool(toolCall, { planFilePath: chatPlanPath });
 
                     // Post-tool plugins: secret redaction, AST compaction, recovery advice
                     result = await sutraHarness.runAfterToolHooks(toolCall, result, harnessContext as any);

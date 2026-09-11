@@ -339,7 +339,7 @@ export const ManagerComposer: React.FC<ManagerComposerProps> = ({ isGenerating, 
               aria-label={permissionLevel === 'strict' ? 'Permission: Strict — click for Full Access' : 'Permission: Full Access — click for Strict'}
               className={`hidden sm:flex items-center justify-center w-7 h-7 rounded-full border transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30 ${
                 permissionLevel === 'strict'
-                  ? 'border-amber-500/40 text-amber-300/90 hover:text-amber-200'
+                  ? 'border-white/40 text-obsidian-inkPrimary bg-white/[0.08] hover:bg-white/[0.14]'
                   : 'border-obsidian-hairline text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:border-white/25'
               }`}
               title={

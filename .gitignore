@@ -42,3 +42,7 @@ Desktop.ini
 
 # Tauri build artifacts
 src-tauri/target/
+
+# Per-chat agent working files (runtime data, never source)
+task_plan.md
+.sutra/

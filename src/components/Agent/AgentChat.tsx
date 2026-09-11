@@ -631,6 +631,7 @@ export const AgentChat: React.FC = () => {
               messages: serializedMessages,
               permissionLevel: permissionLevel,
               isGoalMode: isGoalTriggered,
+              chatId: currentSessionIdRef.current || null,
               activeTabPath: activeTabPath || null,
               activeTabContent: activeTab?.content ? activeTab.content.slice(0, 4000) : null,
               openTabPaths: openTabs.map((t) => t.path),

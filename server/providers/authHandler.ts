@@ -424,9 +424,16 @@ export class ProviderAuthHandler {
   }): boolean {
     const providerMeta = SUTRA_ALL_PROVIDERS.find((p) => p.id === params.providerId);
     const providerName = providerMeta ? providerMeta.name : params.providerId.toUpperCase();
-    const normalizedCookie = params.cookieData ? this.normalizeCookies(params.cookieData) : null;
+    const incomingCookie = params.cookieData && params.cookieData.trim() ? this.normalizeCookies(params.cookieData) : null;
 
     try {
+      // Merge semantics: an absent/empty field preserves what is already stored.
+      // The settings form sends only the field the user actually edited — a
+      // blanket INSERT OR REPLACE here once wiped keys when saving one field.
+      const existing = db
+        .prepare('SELECT api_key, cookie_data, base_url, headers FROM providers WHERE id = ?')
+        .get(params.providerId) as any;
+
       const stmt = db.prepare(`
         INSERT OR REPLACE INTO providers (id, name, api_key, cookie_data, auth_type, base_url, headers, status, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'Connected', CURRENT_TIMESTAMP)
@@ -435,11 +442,11 @@ export class ProviderAuthHandler {
       stmt.run(
         params.providerId,
         providerName,
-        params.apiKey?.trim() || null,
-        normalizedCookie || null,
+        params.apiKey?.trim() || existing?.api_key || null,
+        incomingCookie || existing?.cookie_data || null,
         params.authType || 'api-key',
-        params.baseUrl?.trim() || null,
-        params.headers ? JSON.stringify(params.headers) : null
+        params.baseUrl?.trim() || existing?.base_url || null,
+        params.headers ? JSON.stringify(params.headers) : existing?.headers || null
       );
 
       return true;

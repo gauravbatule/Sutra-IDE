@@ -118,6 +118,8 @@ export interface SendAgentPromptOptions {
   text: string;
   attachedContext?: string | null;
   isGoalMode?: boolean;
+  /** Conversation id — scopes server-side working files (task plan) to this chat. */
+  chatId?: string | null;
 }
 
 export const resolveWsUrl = (): string => {
@@ -315,6 +317,7 @@ export const sendAgentPrompt = async (options: SendAgentPromptOptions): Promise<
             autoCompact: readStoredAutoCompact().enabled,
             autoCompactThreshold: readStoredAutoCompact().threshold,
             isGoalMode: isGoalTriggered,
+            chatId: options.chatId || null,
             activeTabPath: activeTabPath || null,
             activeTabContent: activeTab?.content ? activeTab.content.slice(0, 4000) : null,
             openTabPaths: openTabs.map((t) => t.path),

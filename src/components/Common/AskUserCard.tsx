@@ -127,15 +127,15 @@ export const AskUserCard: React.FC<{ fallback?: AgentQuestion | null }> = ({ fal
 
   return (
     <div
-      className="rounded-xl border-l-2 border-l-indigo-400 border border-white/20 bg-[#17181f] p-4 space-y-3 shadow-elevation"
+      className="rounded-xl border border-white/20 bg-obsidian-surface2 p-4 space-y-3 shadow-elevation"
       role="group"
       aria-label="The agent asked a question"
     >
       <div className="flex items-center gap-2">
-        <span className="text-[10px] font-mono uppercase tracking-wider text-indigo-300">Astra asks</span>
+        <span className="text-[10px] font-mono uppercase tracking-wider text-obsidian-inkMuted">Astra asks</span>
       </div>
       <div className="flex items-start gap-2.5">
-        <HelpCircle className="w-5 h-5 mt-0.5 shrink-0 text-indigo-300" aria-hidden="true" />
+        <HelpCircle className="w-5 h-5 mt-0.5 shrink-0 text-obsidian-inkSecondary" aria-hidden="true" />
         <p className="text-sm font-semibold text-white leading-relaxed break-words">{q.question}</p>
       </div>
 
@@ -148,7 +148,7 @@ export const AskUserCard: React.FC<{ fallback?: AgentQuestion | null }> = ({ fal
               role="option"
               aria-selected={false}
               onClick={() => submit(option)}
-              className="px-3.5 py-2 rounded-lg border border-indigo-400/40 bg-indigo-400/10 hover:bg-indigo-400/25 hover:border-indigo-300/60 text-[13px] font-medium text-indigo-100 transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/60"
+              className="px-3.5 py-2 rounded-lg border border-white/15 bg-white/[0.06] hover:bg-white/[0.14] hover:border-white/35 text-[13px] font-medium text-obsidian-inkPrimary transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
             >
               {option}
             </button>
@@ -171,16 +171,16 @@ export const AskUserCard: React.FC<{ fallback?: AgentQuestion | null }> = ({ fal
             placeholder="Or type your own answer..."
             aria-label="Type your answer"
             autoComplete="off"
-            className="flex-1 min-w-0 bg-black/30 px-3 py-2 rounded-lg border border-white/20 focus:border-indigo-400/60 text-[13px] text-white placeholder-zinc-500 focus:outline-none transition-colors duration-150"
+            className="flex-1 min-w-0 bg-black/30 px-3 py-2 rounded-lg border border-white/20 focus:border-white/45 text-[13px] text-white placeholder-zinc-500 focus:outline-none transition-colors duration-150"
           />
           <button
             type="submit"
             disabled={!canSendFreeText}
             aria-label="Send answer"
             title="Send answer"
-            className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/60 ${
+            className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 ${
               canSendFreeText
-                ? 'bg-indigo-400 text-black hover:bg-indigo-300'
+                ? 'bg-white text-black hover:bg-zinc-200'
                 : 'bg-white/[0.06] text-zinc-600 cursor-not-allowed'
             }`}
           >
