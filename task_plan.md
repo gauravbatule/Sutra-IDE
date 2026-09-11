@@ -1,8 +1,0 @@
-- [ ] (in_progress) Read public/index.html to understand current structure
-- [ ] (in_progress) Read public/css/style.css for existing styles
-- [ ] (in_progress) Read public/js/script.js for existing scripts
-- [ ] (pending) Update --accent color to #f59e0b in CSS
-- [ ] (pending) Add FAQ accordion HTML between testimonials and contact
-- [ ] (pending) Add FAQ CSS styles
-- [ ] (pending) Add FAQ accordion JS logic
-- [ ] (pending) Verify all changes by reading files back
