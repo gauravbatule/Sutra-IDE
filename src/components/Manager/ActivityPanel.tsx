@@ -379,6 +379,43 @@ export const ActivityPanel: React.FC = () => {
       .catch(() => undefined);
   }, [isAgentGenerating]);
 
+  // Expandable per-run event timeline (fetched lazily from /api/runs/:id)
+  interface RunEventRow {
+    id: number;
+    at: number;
+    type: string;
+    payload: unknown;
+  }
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const [runEvents, setRunEvents] = useState<Record<string, RunEventRow[]>>({});
+  const toggleRunTimeline = (runId: string) => {
+    if (expandedRunId === runId) {
+      setExpandedRunId(null);
+      return;
+    }
+    setExpandedRunId(runId);
+    if (runEvents[runId]) return;
+    fetch(`/api/runs/${encodeURIComponent(runId)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d) => setRunEvents((prev) => ({ ...prev, [runId]: Array.isArray(d?.events) ? d.events : [] })))
+      .catch(() => setRunEvents((prev) => ({ ...prev, [runId]: [] })));
+  };
+  const summarizeEvent = (type: string, payload: unknown): string => {
+    const p = payload as any;
+    switch (type) {
+      case 'RunStarted':
+        return `${p?.permissionMode ?? ''}${p?.modelId ? ` · ${p.modelId}` : ''}`;
+      case 'ToolsExecuted':
+        return `round ${p?.round ?? '?'} · ${(p?.tools || []).map((t: any) => t.tool).join(', ') || 'no tools'}`;
+      case 'VerificationCompleted':
+        return `${p?.allPassed ? 'all checks passed' : 'checks failed'}${Array.isArray(p?.checks) ? ` (${p.checks.length})` : ''}`;
+      case 'RunEnded':
+        return String(p?.status ?? '');
+      default:
+        return '';
+    }
+  };
+
   // What Astra remembers across runs — visible, teachable, correctable.
   interface MemoryRow {
     id: number;
@@ -560,34 +597,63 @@ export const ActivityPanel: React.FC = () => {
         {recentRuns.length > 0 && (
           <CollapsibleSection title="Recent Runs" count={recentRuns.length}>
             {recentRuns.map((run) => (
-              <div
-                key={run.id}
-                className="px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors duration-150"
-                title={`${run.promptPreview || 'Empty prompt'} — ${run.status}`}
-              >
-                <div className="flex items-center gap-2">
-                  <StatusDot
-                    tone={run.status === 'failed' ? 'failed' : run.status === 'running' ? 'active' : 'idle'}
-                  />
-                  <span className="flex-1 min-w-0 truncate text-[11px] text-obsidian-inkSecondary">
-                    {run.promptPreview.split('\n')[0].slice(0, 60) || 'Empty prompt'}
-                  </span>
-                  {run.verificationPassed !== null && (
-                    <CheckCircle2
-                      className={`w-3 h-3 shrink-0 ${
-                        run.verificationPassed ? 'text-emerald-400/80' : 'text-red-400'
-                      }`}
-                      aria-label={run.verificationPassed ? 'Verification passed' : 'Verification failed'}
+              <div key={run.id} className="rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => toggleRunTimeline(run.id)}
+                  aria-expanded={expandedRunId === run.id}
+                  title={`${run.promptPreview || 'Empty prompt'} — ${run.status}. Click for the event timeline.`}
+                  className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+                >
+                  <div className="flex items-center gap-2">
+                    <StatusDot
+                      tone={run.status === 'failed' ? 'failed' : run.status === 'running' ? 'active' : 'idle'}
                     />
-                  )}
-                </div>
-                <div className="text-[9px] font-mono text-obsidian-inkMuted pl-3.5">
-                  {new Date(run.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  {' · '}
-                  {run.status}
-                  {run.finishedAt ? ` · ${fmtDuration(run.finishedAt - run.startedAt)}` : ' · running'}
-                  {run.filesMutated > 0 ? ` · ${run.filesMutated} file${run.filesMutated > 1 ? 's' : ''}` : ''}
-                </div>
+                    <span className="flex-1 min-w-0 truncate text-[11px] text-obsidian-inkSecondary">
+                      {run.promptPreview.split('\n')[0].slice(0, 60) || 'Empty prompt'}
+                    </span>
+                    <ChevronRight
+                      className={`w-3 h-3 shrink-0 text-obsidian-inkMuted transition-transform duration-150 ${
+                        expandedRunId === run.id ? 'rotate-90' : ''
+                      }`}
+                      aria-hidden="true"
+                    />
+                    {run.verificationPassed !== null && (
+                      <CheckCircle2
+                        className={`w-3 h-3 shrink-0 ${
+                          run.verificationPassed ? 'text-emerald-400/80' : 'text-red-400'
+                        }`}
+                        aria-label={run.verificationPassed ? 'Verification passed' : 'Verification failed'}
+                      />
+                    )}
+                  </div>
+                  <div className="text-[9px] font-mono text-obsidian-inkMuted pl-3.5">
+                    {new Date(run.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {' · '}
+                    {run.status}
+                    {run.finishedAt ? ` · ${fmtDuration(run.finishedAt - run.startedAt)}` : ' · running'}
+                    {run.filesMutated > 0 ? ` · ${run.filesMutated} file${run.filesMutated > 1 ? 's' : ''}` : ''}
+                  </div>
+                </button>
+                {expandedRunId === run.id && (
+                  <div className="mt-1 ml-3.5 pl-3 border-l border-obsidian-hairline space-y-0.5 py-0.5">
+                    {(runEvents[run.id] || []).map((ev) => (
+                      <div key={ev.id} className="flex items-baseline gap-2 text-[9px] font-mono">
+                        <span className="shrink-0 text-obsidian-inkMuted">
+                          {new Date(ev.at).toLocaleTimeString([], { hour12: false })}
+                        </span>
+                        <span className="shrink-0 text-obsidian-inkSecondary">{ev.type}</span>
+                        <span className="min-w-0 truncate text-obsidian-inkMuted" title={summarizeEvent(ev.type, ev.payload)}>
+                          {summarizeEvent(ev.type, ev.payload)}
+                        </span>
+                      </div>
+                    ))}
+                    {!runEvents[run.id] && <div className="text-[9px] font-mono text-obsidian-inkMuted">Loading timeline…</div>}
+                    {runEvents[run.id] && runEvents[run.id].length === 0 && (
+                      <div className="text-[9px] font-mono text-obsidian-inkMuted">Timeline unavailable</div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </CollapsibleSection>

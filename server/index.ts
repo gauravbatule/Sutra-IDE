@@ -33,6 +33,7 @@ import {
   pruneMemories,
   buildMemorySection,
 } from './harness/memory.js';
+import { initToolStats, recordToolOutcome, buildToolStatsSection } from './harness/toolStats.js';
 import { StagnationDetector, shouldExtendRun } from './harness/stagnation.js';
 import { WSChannel, createPacket, parsePacket } from './wsProtocol.js';
 import { SecurityGuardrails } from './security/guardrails.js';
@@ -363,6 +364,7 @@ initScheduler(db);
 initArtifacts(rootDir);
 initRunLog(db);
 initMemory(db);
+initToolStats(db);
 
 // Session hygiene: drop stale empty sessions (created but never messaged)
 try {
@@ -1986,6 +1988,14 @@ wss.on('connection', (ws: WebSocket, req) => {
               // Memory injection must never break prompt building
             }
 
+            // Observed tool reliability from past runs steers tool choice.
+            let toolStatsSection = '';
+            try {
+              toolStatsSection = buildToolStatsSection();
+            } catch {
+              // Stats injection must never break prompt building
+            }
+
             // One harness context per run — metadata (visitedTools, milestones, telemetry)
             // accumulates across rounds instead of resetting every turn.
             const harnessContext = {
@@ -2091,6 +2101,7 @@ ${semanticContext}
 
 ${workspaceSection}
 ${memorySectionText}
+${toolStatsSection}
 
 WORKSPACE & ARCHITECTURAL CONTEXT:
 - Working Directory: "${fsTools.getWorkspaceRoot()}"
@@ -2458,6 +2469,16 @@ ${customModelsDoc}`;
                     // Post-tool plugins: secret redaction, AST compaction, recovery advice
                     result = await sutraHarness.runAfterToolHooks(toolCall, result, harnessContext as any);
 
+                    // Durable reliability stat — parked approvals are not outcomes.
+                    try {
+                      const parked = result && typeof result === 'object' && result.status === 'waiting_for_user_approval';
+                      if (!parked) {
+                        recordToolOutcome(toolCall.tool, !(result && typeof result === 'object' && result.error));
+                      }
+                    } catch {
+                      // Stats must never break execution
+                    }
+
                     // Broadcast updated swarm state to UI
                     if (toolCall.tool === 'spawn_subagent') {
                       if (ws.readyState === WebSocket.OPEN) {
@@ -2618,9 +2639,11 @@ ${customModelsDoc}`;
             }
 
             // Verification stage: mutated work is proven with real project checks,
-            // never accepted from the agent's own claim of success.
+            // never accepted from the agent's own claim of success. Runs even when
+            // the client has disconnected — every send below guards its own socket,
+            // and the durable outcome must not depend on who is listening.
             let verificationPassed: boolean | null = null;
-            if (!signal.aborted && mutatedFiles.size > 0 && ws.readyState === WebSocket.OPEN) {
+            if (!signal.aborted && mutatedFiles.size > 0) {
               try {
                 const report = await runWorkspaceVerification({
                   workspaceRoot: fsTools.getWorkspaceRoot(),
