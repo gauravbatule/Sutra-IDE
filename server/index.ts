@@ -24,6 +24,15 @@ import { selfHealingEngine } from './harness/selfHealing.js';
 import { sutraHarness } from './harness/sutraHarness.js';
 import { runWorkspaceVerification } from './harness/verification.js';
 import { initRunLog, startRun, recordEvent, finishRun, listRuns, getRunDetail } from './harness/runLog.js';
+import {
+  initMemory,
+  rememberMemory,
+  forgetMemory,
+  listMemories,
+  touchMemories,
+  pruneMemories,
+  buildMemorySection,
+} from './harness/memory.js';
 import { WSChannel, createPacket, parsePacket } from './wsProtocol.js';
 import { SecurityGuardrails } from './security/guardrails.js';
 import { SUTRA_ALL_PROVIDERS } from './providers/catalog.js';
@@ -352,6 +361,7 @@ mediaEngine.setProjectRoot(rootDir);
 initScheduler(db);
 initArtifacts(rootDir);
 initRunLog(db);
+initMemory(db);
 
 // Session hygiene: drop stale empty sessions (created but never messaged)
 try {
@@ -1025,6 +1035,36 @@ app.get('/api/runs/:id', (req, res) => {
     return;
   }
   res.json(detail);
+});
+
+// Agent Memory API — what Astra remembers across runs; users can teach or correct it.
+app.get('/api/memory', (req, res) => {
+  const workspace = typeof req.query.workspace === 'string' && req.query.workspace.trim() !== '' ? req.query.workspace.trim() : null;
+  res.json({ memories: listMemories({ workspaceRoot: workspace, limit: 100 }) });
+});
+
+app.post('/api/memory', safeHandler(async (req, res) => {
+  const content = typeof req.body?.content === 'string' ? req.body.content.trim() : '';
+  if (!content) {
+    res.status(400).json({ error: 'content is required' });
+    return;
+  }
+  const kind = req.body?.kind === 'preference' || req.body?.kind === 'fact' || req.body?.kind === 'lesson' ? req.body.kind : 'preference';
+  const memory = rememberMemory({
+    kind,
+    content,
+    workspaceRoot: fsTools.getWorkspaceRoot(),
+  });
+  res.json({ memory });
+}));
+
+app.delete('/api/memory/:id', (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: 'Invalid id' });
+    return;
+  }
+  res.json({ forgotten: forgetMemory(id) });
 });
 
 // 2. Subagent Swarm & Milestones
@@ -1913,6 +1953,17 @@ wss.on('connection', (ws: WebSocket, req) => {
             // every round's system prompt so the agent always knows its real project.
             const workspaceSection = buildWorkspaceAwarenessSection() + buildAbilitiesSection();
 
+            // Persistent memory: lessons and user preferences from previous runs
+            // are injected so past failures are not repeated.
+            let memorySectionText = '';
+            try {
+              const memoryBlock = buildMemorySection(fsTools.getWorkspaceRoot());
+              memorySectionText = memoryBlock.text;
+              touchMemories(memoryBlock.usedIds);
+            } catch {
+              // Memory injection must never break prompt building
+            }
+
             // One harness context per run — metadata (visitedTools, milestones, telemetry)
             // accumulates across rounds instead of resetting every turn.
             const harnessContext = {
@@ -1984,6 +2035,7 @@ ${activeEditorInfo}
 ${semanticContext}
 
 ${workspaceSection}
+${memorySectionText}
 
 WORKSPACE & ARCHITECTURAL CONTEXT:
 - Working Directory: "${fsTools.getWorkspaceRoot()}"
@@ -2483,6 +2535,23 @@ ${customModelsDoc}`;
                   },
                 });
                 verificationPassed = report.allPassed;
+                // Failure intelligence: real verification failures become durable
+                // lessons so the next run starts already knowing this pitfall.
+                const failedChecks = report.checks.filter((c) => c.status === 'failed' || c.status === 'timeout');
+                if (failedChecks.length > 0) {
+                  try {
+                    for (const check of failedChecks) {
+                      rememberMemory({
+                        kind: 'lesson',
+                        content: `Verification "${check.name}" failed in this workspace: ${check.summary}`,
+                        workspaceRoot: fsTools.getWorkspaceRoot(),
+                      });
+                    }
+                    pruneMemories();
+                  } catch {
+                    // Memory recording must never break a run
+                  }
+                }
                 if (report.checks.length > 0 && ws.readyState === WebSocket.OPEN) {
                   ws.send(createPacket(WSChannel.AGENT_STREAM, 'verification', { report }));
                 }
