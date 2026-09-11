@@ -23,6 +23,7 @@ import { gitCheckpoints } from './harness/gitCheckpoints.js';
 import { selfHealingEngine } from './harness/selfHealing.js';
 import { sutraHarness } from './harness/sutraHarness.js';
 import { runWorkspaceVerification } from './harness/verification.js';
+import { initRunLog, startRun, recordEvent, finishRun, listRuns, getRunDetail } from './harness/runLog.js';
 import { WSChannel, createPacket, parsePacket } from './wsProtocol.js';
 import { SecurityGuardrails } from './security/guardrails.js';
 import { SUTRA_ALL_PROVIDERS } from './providers/catalog.js';
@@ -347,9 +348,10 @@ fsTools.setWorkspaceRoot(rootDir);
 ptyManager.setWorkspaceRoot(rootDir);
 mediaEngine.setProjectRoot(rootDir);
 
-// Scheduled tasks + trackable work artifacts (both persist across restarts)
+// Scheduled tasks + trackable work artifacts + run/event audit log (persist across restarts)
 initScheduler(db);
 initArtifacts(rootDir);
+initRunLog(db);
 
 // Session hygiene: drop stale empty sessions (created but never messaged)
 try {
@@ -1009,6 +1011,21 @@ app.post('/api/checkpoints/rollback', safeHandler(async (req, res) => {
   const result = await gitCheckpoints.rollback(id);
   res.json(result);
 }));
+
+// Agent Run History API — the durable record of what Astra did and how it was verified.
+app.get('/api/runs', (req, res) => {
+  const limit = Number.parseInt(String(req.query.limit ?? ''), 10);
+  res.json({ runs: listRuns(Number.isFinite(limit) ? limit : 50) });
+});
+
+app.get('/api/runs/:id', (req, res) => {
+  const detail = getRunDetail(req.params.id);
+  if (!detail) {
+    res.status(404).json({ error: 'Run not found' });
+    return;
+  }
+  res.json(detail);
+});
 
 // 2. Subagent Swarm & Milestones
 app.get('/api/swarm/status', (_req, res) => {
@@ -1792,6 +1809,22 @@ wss.on('connection', (ws: WebSocket, req) => {
             }
             return;
           }
+          // Durable audit trail for this run — declared outside the run try-block so
+          // both the completion path and the fatal-error catch can close it out.
+          let runLogId: string | null = null;
+          let runFinished = false;
+          const endRun = (
+            status: 'completed' | 'failed' | 'cancelled',
+            data?: { filesMutated?: number; verificationPassed?: boolean | null }
+          ) => {
+            if (!runLogId || runFinished) return;
+            runFinished = true;
+            try {
+              finishRun(runLogId, status, data);
+            } catch (err: any) {
+              console.warn('[SUTRA] Run log finish failed:', err?.message);
+            }
+          };
           try {
             if (activeAgentAbortController) {
               activeAgentAbortController.abort();
@@ -1891,6 +1924,19 @@ wss.on('connection', (ws: WebSocket, req) => {
               tokenBudget: 4800,
               metadata: {} as Record<string, any>,
             };
+
+            // Durable audit trail for this run — written through finishRun exactly once.
+            const promptUserForLog = [...messages].reverse().find((m) => m.role === 'user');
+            try {
+              runLogId = startRun({
+                workspaceRoot: fsTools.getWorkspaceRoot(),
+                modelId: modelRouter.getActiveModel()?.id ?? null,
+                permissionMode: permissionLevel,
+                promptPreview: typeof promptUserForLog?.content === 'string' ? promptUserForLog.content : '',
+              });
+            } catch (err: any) {
+              console.warn('[SUTRA] Run log start failed:', err?.message);
+            }
 
             for (let round = 0; round < maxToolRounds; round += 1) {
               if (signal.aborted) break;
@@ -2361,6 +2407,21 @@ ${customModelsDoc}`;
                 if (target) mutatedFiles.add(String(target));
               }
 
+              // One compact audit event per round — per-tool outcome flags, no payloads.
+              if (runLogId && executions.length > 0) {
+                try {
+                  recordEvent(runLogId, 'ToolsExecuted', {
+                    round: round + 1,
+                    tools: executions.map((e) => ({
+                      tool: e.toolCall.tool,
+                      ok: !((e.result as any)?.error || (e.result as any)?.status === 'skipped'),
+                    })),
+                  });
+                } catch {
+                  // Audit logging must never break the run itself
+                }
+              }
+
               messages.push({
                 role: 'assistant',
                 content: assistantText || null,
@@ -2407,6 +2468,7 @@ ${customModelsDoc}`;
 
             // Verification stage: mutated work is proven with real project checks,
             // never accepted from the agent's own claim of success.
+            let verificationPassed: boolean | null = null;
             if (!signal.aborted && mutatedFiles.size > 0 && ws.readyState === WebSocket.OPEN) {
               try {
                 const report = await runWorkspaceVerification({
@@ -2420,11 +2482,22 @@ ${customModelsDoc}`;
                     }
                   },
                 });
+                verificationPassed = report.allPassed;
                 if (report.checks.length > 0 && ws.readyState === WebSocket.OPEN) {
                   ws.send(createPacket(WSChannel.AGENT_STREAM, 'verification', { report }));
                 }
                 if (report.checks.length > 0) {
                   mobileBridge.broadcastToMobile(WSChannel.AGENT_STREAM, 'verification', { report });
+                }
+                if (runLogId) {
+                  try {
+                    recordEvent(runLogId, 'VerificationCompleted', {
+                      allPassed: report.allPassed,
+                      checks: report.checks.map((c) => ({ name: c.name, status: c.status })),
+                    });
+                  } catch {
+                    // Audit logging must never break the run itself
+                  }
                 }
               } catch (err: any) {
                 // Verification must never fail the run it is verifying.
@@ -2432,11 +2505,17 @@ ${customModelsDoc}`;
               }
             }
 
+            endRun(signal.aborted ? 'cancelled' : 'completed', {
+              filesMutated: mutatedFiles.size,
+              verificationPassed,
+            });
+
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(createPacket(WSChannel.AGENT_STREAM, 'chunk', { done: true, usage: modelRouter.lastRunUsage || undefined }));
             }
           } catch (err: any) {
             console.error('[WS Agent] Fatal stream error:', err);
+            endRun('failed');
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(createPacket(WSChannel.AGENT_STREAM, 'chunk', {
                 done: true,

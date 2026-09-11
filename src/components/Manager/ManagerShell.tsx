@@ -78,6 +78,7 @@ import { ManagerComposer } from './ManagerComposer.js';
 import { ActivityPanel } from './ActivityPanel.js';
 import { ManagerDiffView, collectChangedFiles } from './ManagerDiffView.js';
 import { VerificationCard } from './VerificationCard.js';
+import { deriveAgentStatus } from '../../utils/agentStatus.js';
 
 const WELCOME_MESSAGE: OmniAgentMessage = {
   id: 'msg-welcome',
@@ -189,8 +190,12 @@ export const ManagerShell: React.FC = () => {
 
   // Single consolidated run status: one quiet row replaces every staged loader.
   // While an ask_user question or approval is pending, Astra is parked on the user.
-  const isWaitingOnUser = Boolean(pendingAgentQuestion) || pendingApprovals.length > 0;
-  const showStatusRow = isAgentGenerating || isWaitingOnUser;
+  const agentStatus = deriveAgentStatus({
+    isGenerating: isAgentGenerating,
+    hasPendingQuestion: Boolean(pendingAgentQuestion),
+    hasPendingApprovals: pendingApprovals.length > 0,
+  });
+  const showStatusRow = agentStatus.key !== 'idle';
 
   // Unregister the ask_user sender and drop any parked question when leaving Manager mode
   useEffect(() => {
@@ -564,12 +569,13 @@ export const ManagerShell: React.FC = () => {
                   <div
                     role="status"
                     aria-live="polite"
+                    title={agentStatus.detail}
                     className="flex items-center gap-2 px-1 py-0.5 text-[11px] font-mono text-obsidian-inkMuted"
                   >
-                    {isAgentGenerating && !isWaitingOnUser && (
+                    {agentStatus.key === 'working' && (
                       <Loader2 className="w-3 h-3 animate-spin shrink-0" aria-hidden="true" />
                     )}
-                    <span>{isWaitingOnUser ? 'Astra is waiting for your answer' : 'Astra is working'}</span>
+                    <span>{agentStatus.label}</span>
                   </div>
                 )}
 
