@@ -328,6 +328,48 @@ export const ActivityPanel: React.FC = () => {
       .catch(() => undefined);
   }, [isAgentGenerating]);
 
+  // What Astra remembers across runs — visible, teachable, correctable.
+  interface MemoryRow {
+    id: number;
+    kind: 'lesson' | 'preference' | 'fact';
+    content: string;
+    useCount: number;
+  }
+  const [memories, setMemories] = useState<MemoryRow[]>([]);
+  const [memoryDraft, setMemoryDraft] = useState('');
+  const loadMemories = () =>
+    fetch('/api/memory')
+      .then((r) => r.json())
+      .then((d) => setMemories(Array.isArray(d.memories) ? d.memories : []))
+      .catch(() => undefined);
+  useEffect(() => {
+    if (isAgentGenerating) return;
+    loadMemories();
+  }, [isAgentGenerating]);
+  const teachMemory = async () => {
+    const content = memoryDraft.trim();
+    if (!content) return;
+    try {
+      await fetch('/api/memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, kind: 'preference' }),
+      });
+      setMemoryDraft('');
+      await loadMemories();
+    } catch {
+      // Optimistic silence — next refresh reflects reality
+    }
+  };
+  const forgetMemory = async (id: number) => {
+    try {
+      await fetch(`/api/memory/${id}`, { method: 'DELETE' });
+      setMemories((list) => list.filter((m) => m.id !== id));
+    } catch {
+      // Next refresh reflects reality
+    }
+  };
+
   if (collapsed) {
     return (
       <aside className="hidden lg:flex w-11 min-w-[44px] max-w-[44px] h-full flex-col items-center bg-obsidian-surface1 border-l border-obsidian-hairline shrink-0 select-none">
@@ -400,6 +442,65 @@ export const ActivityPanel: React.FC = () => {
                 </span>
               </div>
             )}
+          </div>
+        </CollapsibleSection>
+
+        {/* Persistent memory — what Astra remembers, teachable and correctable */}
+        <CollapsibleSection title="What Astra Remembers" count={memories.length}>
+          {memories.length === 0 ? (
+            <EmptyLine label="Nothing remembered yet — failures become lessons here" />
+          ) : (
+            memories.map((memory) => (
+              <div
+                key={memory.id}
+                className="group flex items-start gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors duration-150"
+                title={`Used ${memory.useCount}x · ${memory.kind}`}
+              >
+                <span
+                  className={`shrink-0 mt-0.5 px-1 py-px rounded text-[8px] font-mono uppercase tracking-wider border ${
+                    memory.kind === 'lesson'
+                      ? 'border-obsidian-hairline text-obsidian-inkSecondary'
+                      : 'border-obsidian-hairline text-obsidian-inkMuted'
+                  }`}
+                >
+                  {memory.kind === 'preference' ? 'pref' : memory.kind}
+                </span>
+                <span className="flex-1 min-w-0 text-[10px] leading-snug text-obsidian-inkSecondary">
+                  {memory.content}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => forgetMemory(memory.id)}
+                  aria-label="Forget this memory"
+                  title="Forget"
+                  className="shrink-0 p-0.5 rounded text-obsidian-inkMuted opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all cursor-pointer focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+                >
+                  <X className="w-3 h-3" aria-hidden="true" />
+                </button>
+              </div>
+            ))
+          )}
+          <div className="flex items-center gap-1.5 pt-1">
+            <input
+              type="text"
+              value={memoryDraft}
+              onChange={(e) => setMemoryDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') teachMemory();
+              }}
+              placeholder="Teach a preference…"
+              aria-label="Teach Astra a preference"
+              className="flex-1 min-w-0 h-7 px-2 rounded-lg bg-obsidian-surface2 border border-obsidian-hairline text-[10px] font-mono text-obsidian-inkPrimary placeholder:text-obsidian-inkMuted focus:outline-none focus:ring-1 focus:ring-white/30"
+            />
+            <button
+              type="button"
+              onClick={() => teachMemory()}
+              disabled={!memoryDraft.trim()}
+              aria-label="Remember this preference"
+              className="h-7 px-2 rounded-lg bg-obsidian-surface2 border border-obsidian-hairline text-[10px] font-mono text-obsidian-inkSecondary hover:text-obsidian-inkPrimary hover:bg-white/[0.06] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+            >
+              Remember
+            </button>
           </div>
         </CollapsibleSection>
 
