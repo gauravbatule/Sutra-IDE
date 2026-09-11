@@ -160,3 +160,20 @@ export interface ReviewDiffEntry {
   proposedContent: string | null;
   capturedAt: number;
 }
+
+/** One project check executed by the end-of-run verification stage. */
+export interface VerificationCheck {
+  name: string;
+  status: 'passed' | 'failed' | 'timeout' | 'skipped';
+  durationMs: number;
+  summary: string;
+}
+
+/** Structured evidence produced after a run mutated workspace files. */
+export interface VerificationReport {
+  ranAt: number;
+  workspaceRoot: string;
+  filesChanged: number;
+  checks: VerificationCheck[];
+  allPassed: boolean;
+}

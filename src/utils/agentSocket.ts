@@ -233,6 +233,8 @@ export const sendAgentPrompt = async (options: SendAgentPromptOptions): Promise<
 
   // A new run always clears any lingering connection-lost banner
   clearConnectionLost();
+  // ...and any evidence card from the previous run's verification stage
+  useIDEStore.getState().setLastVerification(null);
 
   const userMsg: OmniAgentMessage = {
     id: `msg-${Date.now()}`,
@@ -402,6 +404,14 @@ export const sendAgentPrompt = async (options: SendAgentPromptOptions): Promise<
           // Swarm state: subagent roster (server clears it at the start of each run;
           // setSubagents owns the auto-open Swarm-tab logic)
           store.setSubagents(Array.isArray(packet.payload?.subagents) ? packet.payload.subagents : []);
+          return;
+        }
+
+        if (packet.channel === CHANNEL_AGENT_STREAM && packet.type === 'verification') {
+          // End-of-run verification evidence from the server's verification stage
+          if (packet.payload?.report) {
+            useIDEStore.getState().setLastVerification(packet.payload.report);
+          }
           return;
         }
 

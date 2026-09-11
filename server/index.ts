@@ -22,6 +22,7 @@ import { customModelsManager } from './customModels.js';
 import { gitCheckpoints } from './harness/gitCheckpoints.js';
 import { selfHealingEngine } from './harness/selfHealing.js';
 import { sutraHarness } from './harness/sutraHarness.js';
+import { runWorkspaceVerification } from './harness/verification.js';
 import { WSChannel, createPacket, parsePacket } from './wsProtocol.js';
 import { SecurityGuardrails } from './security/guardrails.js';
 import { SUTRA_ALL_PROVIDERS } from './providers/catalog.js';
@@ -1870,6 +1871,8 @@ wss.on('connection', (ws: WebSocket, req) => {
             const failedCallTracker: Map<string, number> = new Map();
             const callRepetitionTracker: Map<string, number> = new Map();
             const executedToolsSummary: string[] = [];
+            // Workspace paths this run actually mutated — drives the end-of-run verification stage.
+            const mutatedFiles: Set<string> = new Set();
             let totalStreamedText = '';
             let autoContinues = 0;
 
@@ -2349,6 +2352,15 @@ ${customModelsDoc}`;
 
               if (signal.aborted) break;
 
+              // Record which files this round actually mutated (failed/skipped calls excluded)
+              for (const execution of executions) {
+                if (!['write_file', 'edit_file', 'delete_file', 'rename_path'].includes(execution.toolCall.tool)) continue;
+                const resultAny = execution.result as any;
+                if (resultAny && (resultAny.error || resultAny.status === 'skipped')) continue;
+                const target = execution.toolCall.params?.path || execution.toolCall.params?.oldPath || '';
+                if (target) mutatedFiles.add(String(target));
+              }
+
               messages.push({
                 role: 'assistant',
                 content: assistantText || null,
@@ -2390,6 +2402,33 @@ ${customModelsDoc}`;
                 if (ws.readyState === WebSocket.OPEN) {
                   ws.send(createPacket(WSChannel.AGENT_STREAM, 'chunk', { delta: fallbackNotice }));
                 }
+              }
+            }
+
+            // Verification stage: mutated work is proven with real project checks,
+            // never accepted from the agent's own claim of success.
+            if (!signal.aborted && mutatedFiles.size > 0 && ws.readyState === WebSocket.OPEN) {
+              try {
+                const report = await runWorkspaceVerification({
+                  workspaceRoot: fsTools.getWorkspaceRoot(),
+                  filesChanged: mutatedFiles.size,
+                  permissionMode: permissionLevel,
+                  onProgress: (message) => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                      ws.send(createPacket(WSChannel.AGENT_STREAM, 'chunk', { thinking: message }));
+                      mobileBridge.broadcastToMobile(WSChannel.AGENT_STREAM, 'chunk', { thinking: message });
+                    }
+                  },
+                });
+                if (report.checks.length > 0 && ws.readyState === WebSocket.OPEN) {
+                  ws.send(createPacket(WSChannel.AGENT_STREAM, 'verification', { report }));
+                }
+                if (report.checks.length > 0) {
+                  mobileBridge.broadcastToMobile(WSChannel.AGENT_STREAM, 'verification', { report });
+                }
+              } catch (err: any) {
+                // Verification must never fail the run it is verifying.
+                console.warn('[SUTRA] Verification stage skipped:', err?.message);
               }
             }
 

@@ -77,6 +77,7 @@ import { useAuthStore } from '../../stores/authStore.js';
 import { ManagerComposer } from './ManagerComposer.js';
 import { ActivityPanel } from './ActivityPanel.js';
 import { ManagerDiffView, collectChangedFiles } from './ManagerDiffView.js';
+import { VerificationCard } from './VerificationCard.js';
 
 const WELCOME_MESSAGE: OmniAgentMessage = {
   id: 'msg-welcome',
@@ -156,6 +157,7 @@ export const ManagerShell: React.FC = () => {
     availableModels,
     isSettingsOpen,
     setSettingsOpen,
+    lastVerification,
   } = useIDEStore();
 
   const [sessionId, setSessionId] = useState<string>(() => `session-${Date.now()}`);
@@ -569,6 +571,14 @@ export const ManagerShell: React.FC = () => {
                     )}
                     <span>{isWaitingOnUser ? 'Astra is waiting for your answer' : 'Astra is working'}</span>
                   </div>
+                )}
+
+                {/* End-of-run verification evidence — cleared automatically when the next prompt sends */}
+                {!showStatusRow && lastVerification && (
+                  <VerificationCard
+                    report={lastVerification}
+                    onDismiss={() => useIDEStore.getState().setLastVerification(null)}
+                  />
                 )}
               </div>
             )}

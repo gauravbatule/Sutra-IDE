@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { OpenFileTab, OmniModel, SubagentState, PermissionLevel, ToolCallPayload, OmniAgentMessage, ProjectAsset, PendingAgentQuestion, ReviewDiffEntry } from '../types/ide.js';
+import { OpenFileTab, OmniModel, SubagentState, PermissionLevel, ToolCallPayload, OmniAgentMessage, ProjectAsset, PendingAgentQuestion, ReviewDiffEntry, VerificationReport } from '../types/ide.js';
 
 interface IDEState {
   // Tabs & File Editor
@@ -39,6 +39,9 @@ interface IDEState {
   // Run telemetry (provider retries + context usage)
   retryLog: Array<{ attempt: number; totalAttempts: number; provider: string; model: string; status: string; latencyMs: number; reason: string; at: number }>;
   lastRunUsage: { contextUsed: number; contextWindow: number; contextRemaining: number; outputTokens: number } | null;
+  /** Evidence from the end-of-run verification stage of the most recent mutating run. */
+  lastVerification: VerificationReport | null;
+  setLastVerification: (report: VerificationReport | null) => void;
   addRetryEvent: (event: { attempt: number; totalAttempts: number; provider: string; model: string; status: string; latencyMs: number; reason: string }) => void;
   clearRetryLog: () => void;
   setLastRunUsage: (usage: { contextUsed: number; contextWindow: number; contextRemaining: number; outputTokens: number } | null) => void;
@@ -179,12 +182,14 @@ export const useIDEStore = create<IDEState>((set, get) => ({
 
   retryLog: [],
   lastRunUsage: null,
+  lastVerification: null,
   addRetryEvent: (event) =>
     set((state) => ({
       retryLog: [...state.retryLog, { ...event, at: Date.now() }].slice(-50),
     })),
   clearRetryLog: () => set({ retryLog: [] }),
   setLastRunUsage: (lastRunUsage) => set({ lastRunUsage }),
+  setLastVerification: (lastVerification) => set({ lastVerification }),
   pendingAgentQuestion: null,
   reviewDiffs: {},
 
