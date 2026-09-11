@@ -45,6 +45,13 @@ export default [
     },
   },
   {
+    // Electron main process files are CommonJS by contract — require() is mandatory there.
+    files: ['**/*.cjs'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+  {
     ignores: [
       'node_modules/**',
       'dist/**',

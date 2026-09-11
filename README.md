@@ -1,145 +1,115 @@
-# SUTRA Studio ⚡
-> **AI-Native Autonomous Software Development Studio & Multimodal Engineering Harness**
+# SUTRA
 
-SUTRA Studio is a developer studio built for autonomous software development. It combines local and frontier AI multi-model routing, automatic fallback chains for text/image/video/audio, interactive ReAct agent tool loops, a native Windows PowerShell ConPTY terminal, Monaco code editor, and internal multimodal asset generation.
+> AI-native autonomous product development studio
+
+SUTRA pairs a calm, keyboard-first workspace with Astra, an autonomous engineering agent that reads, writes, and runs code directly in your project. Multi-provider model routing with automatic fallback, micro-checkpoints before every mutation, structured verification of completed work, and a native terminal — in one desktop-grade application.
 
 ---
 
-## 🚀 Quick Start Guide
+## Quick Start
 
-### 1. Installation & Prerequisites
-- **Node.js**: v18.0.0 or later
-- **Operating System**: Windows 10/11, macOS, or Linux
+**Prerequisites:** Node.js 18+, Windows 10/11, macOS, or Linux.
 
 ```bash
-# Clone or navigate to the project directory
-cd omnicraft-ide
-
-# Install dependencies
 npm install
-```
-
-### 2. Launching SUTRA Studio
-You can start the full development environment with a single command:
-
-```bash
-# Start Vite frontend, Express API server, and OmniRoute Gateway simultaneously
 npm run dev
 ```
 
 Or double-click `run-ide.bat` on Windows to start the studio and open the native app window automatically.
 
-- **Desktop IDE URL**: [http://localhost:5173](http://localhost:5173)
-- **API Server & WebSockets**: `http://localhost:3001`
-- **OmniRoute Local Gateway**: `http://localhost:20128`
-
----
-
-## 🧠 AI Provider & Model Setup
-
-SUTRA Studio does not require hardcoded keys. You can configure any provider via the in-app **Settings Modal** (click Settings in the ActivityBar) or by adding environment variables in a `.env` file:
-
-| Provider | Environment Variable | Recommended Models | Key Creation URL |
-|---|---|---|---|
-| **Google Gemini** | `GEMINI_API_KEY` | `gemini-2.0-flash`, `gemini-1.5-pro` | [aistudio.google.com](https://aistudio.google.com/app/apikey) (Free) |
-| **OpenRouter** | `OPENROUTER_API_KEY` | Claude 3.7 Sonnet, GPT-4o, DeepSeek | [openrouter.ai/keys](https://openrouter.ai/keys) |
-| **Groq LPUs** | `GROQ_API_KEY` | `llama-3.3-70b-versatile`, `qwen-2.5-coder` | [console.groq.com](https://console.groq.com/keys) (Free Tier) |
-| **DeepSeek** | `DEEPSEEK_API_KEY` | `deepseek-v3`, `deepseek-r1` | [platform.deepseek.com](https://platform.deepseek.com) |
-| **Anthropic** | `ANTHROPIC_API_KEY` | `claude-3-7-sonnet`, `claude-3-5-sonnet` | [console.anthropic.com](https://console.anthropic.com) |
-| **OpenAI** | `OPENAI_API_KEY` | `gpt-4o`, `o3-mini` | [platform.openai.com](https://platform.openai.com/api-keys) |
-| **Local Ollama** | `OLLAMA_BASE_URL` | `qwen2.5-coder`, `llama3.3` | [ollama.com](https://ollama.com) (100% Offline) |
-
----
-
-## 🛠️ Multi-Tier Autonomous Fallback Chains
-
-SUTRA guarantees zero disruption during execution by employing multi-tier fallback chains:
-- **Text Models**: Selected Model → Google Gemini → OpenRouter → Groq → DeepSeek → OpenAI → Anthropic → Local Ollama.
-- **Image Generation**: OmniRoute / DALL-E → Pollinations FLUX Engine → Bespoke Luxury Vector SVG Engine.
-- **Video Generation**: OmniRoute Video → Pollinations Video Engine → High-FPS Procedural Animated Visual Canvas.
-- **Audio & Speech**: OpenAI / OmniRoute TTS → Google TTS API → Procedural 44.1kHz 16-bit PCM WAV Synthesizer.
-
----
-
-## 🛠️ Studio Feature Tour
-
-### 1. 🤖 Autonomous ReAct Agent Loop
-- Operates directly on your workspace files with surgical precision.
-- **Internal Multimodal Generation**: The agent generates images, videos, audio cues, and SVGs internally and presents them directly in the chat feed with interactive players.
-- **Integrated Agent Tools**:
-  - `read_file`: Inspect exact file contents before making edits.
-  - `write_file`: Create new files or replace full modules.
-  - `edit_file`: Targeted surgical string replacements.
-  - `run_command`: Execute test runners, package installers, and build commands in PowerShell.
-  - `generate_image_asset`: Creates and saves images to `/public/assets/`.
-  - `generate_video_asset`: Creates motion video assets.
-  - `generate_audio_asset`: Creates tactile UI audio and speech.
-  - `search_web` & `scrape_url`: Query modern documentation and extract compressed web content.
-  - `spawn_subagent`: Allocate parallel specialist workers (frontend, backend, QA, media).
-- **Interactive Pause & Steering**: Hit **Pause** at any time without losing code or context, and provide real-time steering instructions.
-- **Autopilot vs Safe Mode**: Toggle between **Auto** (unattended autonomous execution) and **Safe** (manual approval before modifying files or running commands).
-
-### 2. 💻 PowerShell ConPTY Native Terminal
-- Full interactive Windows PowerShell session with ANSI true-color and keystroke multiplexing.
-- Toggle at any time with **`Ctrl+\``** or the terminal icon in the ActivityBar.
-
-### 3. 📱 Multi-Device Live Viewport Sandbox
-- Real-time live preview of your web application across responsive frames:
-  - **Fluid Desktop** (100%)
-  - **Tablet** (iPad Pro 768 × 1024)
-  - **Mobile** (iPhone 15 Pro 393 × 852)
-- Anti-Slop Visual QA auditor to verify WCAG contrast, typography friction, and responsive layout hygiene.
-
----
-
-## ⌨️ Universal Keyboard Shortcuts
-
-| Shortcut | Description |
+| Surface | URL |
 |---|---|
-| **`⌘K` / `Ctrl+K`** | Open Command Palette & Quick File Search |
-| **`Ctrl+S`** | Save active file in Monaco Editor |
-| **`Ctrl+\``** | Toggle PowerShell ConPTY Terminal |
-| **`Ctrl+Shift+E`** | Open File Explorer |
-| **`Ctrl+Shift+F`** | Open Workspace Code Search |
-| **`Esc`** | Close any active modal or palette |
+| Desktop IDE | http://localhost:5173 |
+| API server & WebSockets | http://localhost:3001 |
+| Bundled local model gateway | http://localhost:20128 |
 
 ---
 
-## 📁 Repository Architecture
+## Model Setup
+
+No hardcoded keys. Configure providers in-app via **Settings**, or provide environment variables in a `.env` file:
+
+| Provider | Environment Variable | Notes |
+|---|---|---|
+| Google Gemini | `GEMINI_API_KEY` | Free tier available |
+| OpenRouter | `OPENROUTER_API_KEY` | Frontier + open models |
+| Groq | `GROQ_API_KEY` | Free tier available |
+| DeepSeek | `DEEPSEEK_API_KEY` | |
+| Anthropic | `ANTHROPIC_API_KEY` | |
+| OpenAI | `OPENAI_API_KEY` | |
+| Local Ollama | `OLLAMA_BASE_URL` | 100% offline |
+
+Requests route through your selected model first, then fall back across configured providers automatically so long runs never stall on a single provider.
+
+---
+
+## How Astra Works
+
+Astra operates on your workspace through a verified execution pipeline:
+
+1. **Plan** — interprets the objective and proposes an approach.
+2. **Act** — reads, edits, and runs code through sandboxed tools.
+3. **Verify** — typechecks, tests, and builds where applicable; results are surfaced as evidence, not claims.
+4. **Report** — every changed file, command, and verification result is reviewable inline.
+
+### Agent Tools
+
+| Tool | Purpose |
+|---|---|
+| `read_file` / `write_file` / `edit_file` / `delete_file` | Filesystem mutations, checkpointed before every write |
+| `grep_search` / `list_directory` | Workspace search and inspection |
+| `run_command` | Test runners, package managers, builds (PowerShell / shell) |
+| `generate_image_asset` / `generate_video_asset` / `generate_audio_asset` | Multimodal asset generation into `/public/assets/` |
+| `search_web` / `scrape_url` | Documentation research with content containment |
+| `spawn_subagent` | Parallel specialist workers sharing one event log |
+
+### Safety Model
+
+- **Autonomous mode** for unattended runs; **approval mode** gates every mutation and command behind explicit consent.
+- Automatic micro-checkpoints are captured before each modification, with selective rollback from the checkpoints API.
+- Tool outputs from untrusted sources are structurally contained; credentials are redacted from all model context.
+
+---
+
+## Workspace
+
+- **Manager mode** — chat-first home for planning and reviewing agent work.
+- **IDE mode** — Monaco editor, file explorer, workspace search, Git panel, integrated terminal, diagnostics, live preview across device viewports.
+- **Mobile companion** — pair by QR to approve, steer, and monitor runs from your phone.
+
+---
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+K` | Command palette & quick file open |
+| `Ctrl+S` | Save active file |
+| `` Ctrl+` `` | Toggle terminal |
+| `Ctrl+Shift+E` | File explorer |
+| `Ctrl+Shift+F` | Workspace search |
+| `Esc` | Close modal or palette |
+
+---
+
+## Repository Layout
 
 ```
 omnicraft-ide/
-├── public/                 # Static web assets & generated media
-├── server/                 # Express backend & WebSocket multiplexer
-│   ├── agentSwarm.ts       # Subagent matrix & parallel workers
-│   ├── db.ts               # SQLite database (sessions, workspaces, keys)
-│   ├── fsTools.ts          # Filesystem CRUD, grep search, git diffs
-│   ├── mediaEngine.ts      # Multimodal asset generation engine
-│   ├── modelRouter.ts      # Multi-provider dynamic AI routing
-│   ├── ptyManager.ts       # Windows ConPTY PowerShell terminal manager
-│   ├── mobileBridge.ts     # LAN QR pairing & phone socket gateway
-│   └── index.ts            # REST API & WebSocket routing gateway
-├── src/                    # React 18 + Vite frontend
-│   ├── components/
-│   │   ├── Agent/          # Autonomous agent chat, markdown, tool cards
-│   │   ├── CommandPalette/ # Quick file & command search
-│   │   ├── DesignVault/    # Godly UI patterns & live web scraper
-│   │   ├── Editor/         # Monaco editor & tab bar
-│   │   ├── Explorer/       # File tree & workspace manager
-│   │   ├── Git/            # Real-time git status & visual diffs
-│   │   ├── Guide/          # Interactive User Guide & onboarding tour
-│   │   ├── Layout/         # TitleBar, ActivityBar, AppShell, StatusBar
-│   │   ├── MediaStudio/    # Multimodal image, video, audio generation
-│   │   ├── MobileConnect/  # QR code pairing modal
-│   │   ├── Preview/        # Multi-device responsive sandbox preview
-│   │   ├── Search/         # Workspace grep search
-│   │   └── Settings/       # AI provider keys & latency tests
-│   ├── stores/             # Zustand state management
-│   └── App.tsx             # Main desktop & mobile shell
-└── vendor/omniroute/       # Local OmniRoute multi-model gateway
+├── public/            # Static assets & generated media
+├── server/            # Express API, WebSocket multiplexer, agent core
+│   ├── harness/       # Turn engine, checkpoints, self-healing
+│   ├── tools/         # Filesystem, LSP, diff, indexing, research tools
+│   └── providers/     # Model provider catalog & auth
+├── src/               # React 18 + Vite frontend
+│   ├── components/    # Manager, Agent, Editor, Layout, Git, Preview...
+│   └── stores/        # Zustand state
+├── desktop/           # Electron shell
+└── vendor/            # Bundled local model gateway (external project)
 ```
 
 ---
 
-## 📄 License
-MIT License. Built for autonomous software engineering.
+## License
+
+MIT. Built for autonomous software engineering.
