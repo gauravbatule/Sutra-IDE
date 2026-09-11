@@ -98,6 +98,7 @@ interface ArtifactEntry {
   key: string;
   kind: 'image' | 'video' | 'audio';
   name: string;
+  url: string | null;
 }
 
 const VISIBLE_ARTIFACTS = 4;
@@ -107,6 +108,13 @@ const fmtK = (n: number): string => {
   if (n >= 1_000_000) return `${Math.round(n / 1_000_000)}M`;
   if (n >= 1000) return `${Math.round(n / 1000)}k`;
   return String(n);
+};
+
+/** 4200 -> "4s"; 82000 -> "1m 22s" */
+const fmtDuration = (ms: number): string => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
 };
 
 /** 65 -> "1:05"; 3700 -> "1:01:40" */
@@ -172,6 +180,42 @@ const ArtifactViewer: React.FC<{ artifact: ServerArtifact; onClose: () => void }
   </div>
 );
 
+/** Lightbox preview for generated media artifacts (images, video, audio). */
+const MediaViewer: React.FC<{ artifact: ArtifactEntry; onClose: () => void }> = ({ artifact, onClose }) => (
+  <div
+    className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-6"
+    role="dialog"
+    aria-label={`Preview: ${artifact.name}`}
+    onClick={onClose}
+  >
+    <div
+      className="w-full max-w-2xl rounded-xl border border-obsidian-border bg-obsidian-surface2 shadow-elevation overflow-hidden"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <header className="flex items-center justify-between px-4 py-3 border-b border-obsidian-hairline shrink-0">
+        <div className="min-w-0 text-sm font-semibold text-obsidian-inkPrimary truncate">{artifact.name}</div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close preview"
+          className="p-1.5 rounded-lg text-obsidian-inkMuted hover:text-obsidian-inkPrimary hover:bg-white/[0.06] transition-colors cursor-pointer"
+        >
+          <X className="w-4 h-4" aria-hidden="true" />
+        </button>
+      </header>
+      <div className="p-4 bg-obsidian-canvas flex items-center justify-center">
+        {artifact.kind === 'video' ? (
+          <video src={artifact.url!} controls autoPlay loop muted playsInline className="max-h-[60vh] w-full bg-black object-contain" />
+        ) : artifact.kind === 'audio' ? (
+          <audio src={artifact.url!} controls className="w-full" />
+        ) : (
+          <img src={artifact.url!} alt={artifact.name} className="max-h-[60vh] object-contain" />
+        )}
+      </div>
+    </div>
+  </div>
+);
+
 export const ActivityPanel: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [showAllArtifacts, setShowAllArtifacts] = useState(false);
@@ -196,6 +240,7 @@ export const ActivityPanel: React.FC = () => {
   // Server-side work artifacts (plans, implementations, verification) — refreshed when runs end
   const [workArtifacts, setWorkArtifacts] = useState<ServerArtifact[]>([]);
   const [viewingArtifact, setViewingArtifact] = useState<ServerArtifact | null>(null);
+  const [viewingMedia, setViewingMedia] = useState<ArtifactEntry | null>(null);
   useEffect(() => {
     const load = () =>
       fetch('/api/artifacts')
@@ -283,11 +328,15 @@ export const ActivityPanel: React.FC = () => {
           basename(String(tc.params?.path || '')) ||
           String(tc.params?.prompt || '').slice(0, 48) ||
           'Untitled asset',
+        url:
+          (typeof tc.result?.url === 'string' && tc.result.url) ||
+          (tc.result?.path ? `/assets/images/${tc.params?.filename || ''}` : null),
       }));
     const fromStore: ArtifactEntry[] = assets.map((a) => ({
       key: `asset-${a.id}`,
       kind: a.type === 'video' ? 'video' : a.type === 'audio' ? 'audio' : 'image',
       name: a.name || basename(a.path) || 'Untitled asset',
+      url: a.url || null,
     }));
     return [...fromTools, ...fromStore];
   }, [allToolCalls, assets]);
@@ -314,6 +363,7 @@ export const ActivityPanel: React.FC = () => {
   interface RunRow {
     id: string;
     startedAt: number;
+    finishedAt: number | null;
     status: string;
     promptPreview: string;
     filesMutated: number;
@@ -533,6 +583,7 @@ export const ActivityPanel: React.FC = () => {
                   {new Date(run.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   {' · '}
                   {run.status}
+                  {run.finishedAt ? ` · ${fmtDuration(run.finishedAt - run.startedAt)}` : ' · running'}
                   {run.filesMutated > 0 ? ` · ${run.filesMutated} file${run.filesMutated > 1 ? 's' : ''}` : ''}
                 </div>
               </div>
@@ -558,8 +609,15 @@ export const ActivityPanel: React.FC = () => {
                     <span className="flex-1 min-w-0 truncate text-[10px] font-mono text-obsidian-inkSecondary">
                       {entry.provider} · {entry.model}
                     </span>
+                    <span
+                      className="shrink-0 text-[9px] font-mono text-obsidian-inkMuted"
+                      title={`At ${new Date(entry.at).toLocaleTimeString()}`}
+                    >
+                      {new Date(entry.at).toLocaleTimeString([], { hour12: false })}
+                    </span>
                     <span className="shrink-0 text-[9px] font-mono uppercase tracking-wider text-obsidian-inkMuted">
                       {entry.status}
+                      {entry.latencyMs > 0 ? ` · ${(entry.latencyMs / 1000).toFixed(1)}s` : ''}
                     </span>
                   </div>
                   <div className="text-[9px] font-mono text-obsidian-inkMuted">
@@ -656,22 +714,40 @@ export const ActivityPanel: React.FC = () => {
             <EmptyLine label="No artifacts yet" />
           ) : (
             <>
-              {visibleArtifacts.map((artifact) => (
-                <div
-                  key={artifact.key}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors duration-150"
-                  title={artifact.name}
-                >
-                  {artifact.kind === 'video' ? (
+              {visibleArtifacts.map((artifact) => {
+                const icon =
+                  artifact.kind === 'video' ? (
                     <Film className="w-3.5 h-3.5 shrink-0 text-obsidian-inkSecondary" aria-hidden="true" />
                   ) : artifact.kind === 'audio' ? (
                     <Volume2 className="w-3.5 h-3.5 shrink-0 text-obsidian-inkSecondary" aria-hidden="true" />
                   ) : (
                     <ImageIcon className="w-3.5 h-3.5 shrink-0 text-obsidian-inkSecondary" aria-hidden="true" />
-                  )}
-                  <span className="flex-1 min-w-0 truncate text-[11px] text-obsidian-inkSecondary">{artifact.name}</span>
-                </div>
-              ))}
+                  );
+                if (artifact.url) {
+                  return (
+                    <button
+                      key={artifact.key}
+                      type="button"
+                      onClick={() => setViewingMedia(artifact)}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors duration-150 text-left cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+                      title={`${artifact.name} — click to preview`}
+                    >
+                      {icon}
+                      <span className="flex-1 min-w-0 truncate text-[11px] text-obsidian-inkSecondary">{artifact.name}</span>
+                    </button>
+                  );
+                }
+                return (
+                  <div
+                    key={artifact.key}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors duration-150"
+                    title={artifact.name}
+                  >
+                    {icon}
+                    <span className="flex-1 min-w-0 truncate text-[11px] text-obsidian-inkSecondary">{artifact.name}</span>
+                  </div>
+                );
+              })}
               {artifacts.length > VISIBLE_ARTIFACTS && (
                 <button
                   type="button"
@@ -779,6 +855,9 @@ export const ActivityPanel: React.FC = () => {
 
       {viewingArtifact && (
         <ArtifactViewer artifact={viewingArtifact} onClose={() => setViewingArtifact(null)} />
+      )}
+      {viewingMedia && viewingMedia.url && (
+        <MediaViewer artifact={viewingMedia} onClose={() => setViewingMedia(null)} />
       )}
     </aside>
   );
